@@ -153,6 +153,16 @@ def scraper_process(config_path: Path, stop_event: Event) -> None:
                 error = str(e)
                 scraper_logger.error(f"Failed to fetch metadata for {md5}: {e}")
 
+            # Lokaler Patch: Buchseite /md5/ ist hinter DDoS-Guard (403). Mit
+            # Mitgliedsschlüssel trotzdem einreihen - der Download-Worker
+            # versucht zuerst den Schnell-Download, der davon nicht betroffen ist.
+            if not mirrors and config.get('fast_download', 'enabled', default=False) \
+                    and config.get('fast_download', 'key'):
+                scraper_logger.info(f"No mirrors for {md5} ({error}), queueing for fast download only")
+                mirrors = [{'url': '', 'type': 'fast_download_only',
+                            'domain': 'fast-download', 'text': 'fast download'}]
+                error = None
+
             # Check if we should stop
             if stop_event.is_set():
                 scraper_logger.info(f"Scraper stopping, leaving job {md5} for cleanup")

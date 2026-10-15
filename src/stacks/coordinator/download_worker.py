@@ -228,6 +228,10 @@ def download_worker_process(
                 all_mirrors,
                 config.get('downloads', 'allow_external_mirrors', default=False)
             )
+            # Lokaler Patch: Platzhalter aus dem Scraper ist kein echter Mirror
+            all_mirrors = [m for m in all_mirrors if m.get('type') != 'fast_download_only']
+            if assigned_mirror and assigned_mirror.get('type') == 'fast_download_only':
+                assigned_mirror = None
             assigned_mirror_claimed = assigned_mirror is not None
             if assigned_mirror and not filter_mirrors_for_policy(
                 [assigned_mirror],
