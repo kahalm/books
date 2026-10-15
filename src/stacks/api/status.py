@@ -8,6 +8,23 @@ from stacks.security.auth import require_auth_with_permissions
 logger = logging.getLogger("api")
 
 
+def _fast_download_usage(ops):
+    """Local daily fast download counter (limit configured in Stacks)."""
+    config = current_app.stacks_config
+    if not (config.get('fast_download', 'enabled', default=False)
+            and config.get('fast_download', 'key')):
+        return {'available': False, 'downloads_left': None, 'downloads_per_day': None}
+    limit = config.get('fast_download', 'daily_limit', default=50)
+    usage = ops.get_fast_download_usage(limit)
+    return {
+        'available': True,
+        'downloads_used': usage['used'],
+        'downloads_left': max(limit - usage['used'], 0) if limit else None,
+        'downloads_per_day': limit or None,
+        'next_slot': usage['next_slot'],
+    }
+
+
 def get_queue_ops():
     """Get the queue operations instance for multi-process mode."""
     from stacks.coordinator.queue_ops import QueueOperations
@@ -83,11 +100,7 @@ def api_status():
             'queue': queued,  # Frontend expects 'queue', not 'queued'
             'queue_size': len(queued),
             'recent_history': db_status.get('history', [])[:10],
-            'fast_download': {
-                'available': False,
-                'downloads_left': None,
-                'downloads_per_day': None
-            },
+            'fast_download': _fast_download_usage(ops),
             'paused': db_status.get('paused', False),
             'workers': db_status.get('workers', []),
             'busy_mirrors': db_status.get('busy_mirrors', [])

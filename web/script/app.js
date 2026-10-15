@@ -136,6 +136,9 @@ function updateStatus() {
         const downloadsPerDay = data.fast_download.downloads_per_day;
         if (downloadsLeft !== null && downloadsPerDay !== null) {
           document.getElementById("stat-fast").textContent = `${downloadsLeft}/${downloadsPerDay}`;
+          fastCard.title = data.fast_download.next_slot
+            ? `Daily limit reached - next download at ${new Date(data.fast_download.next_slot).toLocaleString()}`
+            : "Fast downloads left in the last 24 hours";
           fastCard.style.display = "block";
         } else {
           fastCard.style.display = "none";
@@ -521,6 +524,7 @@ function loadSettings() {
       // Fast Download
       document.getElementById("setting-fast-enabled").checked = !!config.fast_download?.enabled;
       document.getElementById("setting-fast-key").value = config.fast_download?.key || "";
+      document.getElementById("setting-fast-daily-limit").value = config.fast_download?.daily_limit ?? 50;
 
       // FlareSolverr
       document.getElementById("setting-flaresolverr-enabled").checked = !!config.flaresolverr?.enabled;
@@ -561,6 +565,7 @@ function saveSettings() {
     fast_download: {
       enabled: document.getElementById("setting-fast-enabled").checked,
       key: document.getElementById("setting-fast-key").value || null,
+      daily_limit: Math.max(0, parseInt(document.getElementById("setting-fast-daily-limit").value) || 0),
     },
     flaresolverr: {
       enabled: document.getElementById("setting-flaresolverr-enabled").checked,

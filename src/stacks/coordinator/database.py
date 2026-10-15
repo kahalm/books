@@ -102,6 +102,15 @@ CREATE TABLE IF NOT EXISTS migrations (
     applied_at TEXT NOT NULL
 );
 
+-- Fast download usage log for the daily limit (kept when history is cleared)
+CREATE TABLE IF NOT EXISTS fast_download_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    md5 TEXT NOT NULL,
+    used_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_fast_download_log_used_at ON fast_download_log(used_at);
+
 -- System-wide flags (pause state, etc.)
 CREATE TABLE IF NOT EXISTS system_flags (
     key TEXT PRIMARY KEY,

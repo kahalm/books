@@ -464,6 +464,52 @@ class QueueOperations:
         finally:
             conn.close()
 
+    # ========== Fast download daily limit ==========
+
+    FAST_DOWNLOAD_WINDOW = timedelta(hours=24)
+
+    def record_fast_download(self, md5: str) -> None:
+        """Log one used fast download (counts against the daily limit)."""
+        conn = get_connection()
+        try:
+            conn.execute(
+                "INSERT INTO fast_download_log (md5, used_at) VALUES (?, ?)",
+                (md5, datetime.now().isoformat())
+            )
+            # Entries older than the window are no longer needed
+            cutoff = (datetime.now() - 2 * self.FAST_DOWNLOAD_WINDOW).isoformat()
+            conn.execute("DELETE FROM fast_download_log WHERE used_at < ?", (cutoff,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_fast_download_usage(self, limit: int) -> dict:
+        """
+        Fast downloads used in the last 24 hours.
+
+        Returns {used, limit, exhausted, next_slot}; next_slot is the ISO time
+        when the oldest counted download leaves the window (only if exhausted).
+        A limit of 0 means unlimited.
+        """
+        since = (datetime.now() - self.FAST_DOWNLOAD_WINDOW).isoformat()
+        conn = get_connection()
+        try:
+            rows = conn.execute(
+                "SELECT used_at FROM fast_download_log WHERE used_at >= ? ORDER BY used_at",
+                (since,)
+            ).fetchall()
+        finally:
+            conn.close()
+
+        used = len(rows)
+        exhausted = bool(limit) and used >= limit
+        next_slot = None
+        if exhausted:
+            # The (used - limit + 1)-th oldest entry has to expire first
+            oldest = datetime.fromisoformat(rows[used - limit]['used_at'])
+            next_slot = (oldest + self.FAST_DOWNLOAD_WINDOW).isoformat(timespec='seconds')
+        return {'used': used, 'limit': limit, 'exhausted': exhausted, 'next_slot': next_slot}
+
     def complete_download(
         self,
         worker_id: str,

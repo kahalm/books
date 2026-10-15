@@ -72,6 +72,11 @@ fast_download:
     types: [STRING, NULL]
     default: null
     max_length: 256
+  daily_limit:
+    types: [INTEGER]
+    default: 50
+    min: 0
+    max: 10000
 
 flaresolverr:
   enabled:

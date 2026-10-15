@@ -12,6 +12,7 @@ import json
 import logging
 import signal
 import sys
+import time
 from multiprocessing import Event
 from pathlib import Path
 from typing import Optional
@@ -187,6 +188,9 @@ def download_worker_process(
     def status_callback(status_message):
         worker_logger.debug(f"Status: {status_message}")
 
+    limit_logged_until = None
+    last_config_load = 0.0
+
     # Main worker loop
     while not stop_event.is_set():
         try:
@@ -198,6 +202,24 @@ def download_worker_process(
                 worker_logger.debug("Worker paused, waiting...")
                 stop_event.wait(timeout=5)
                 continue
+
+            # Daily fast download limit reached: leave the queue untouched
+            # until the oldest counted download is 24 hours old
+            if time.monotonic() - last_config_load > 30:
+                config.load()  # settings may have changed in the UI
+                last_config_load = time.monotonic()
+            if config.get('fast_download', 'enabled', default=False) \
+                    and config.get('fast_download', 'key'):
+                usage = queue_ops.get_fast_download_usage(
+                    config.get('fast_download', 'daily_limit', default=50))
+                if usage['exhausted']:
+                    if limit_logged_until != usage['next_slot']:
+                        worker_logger.info(
+                            f"Daily fast download limit reached ({usage['used']}/{usage['limit']}), "
+                            f"waiting until {usage['next_slot']}")
+                        limit_logged_until = usage['next_slot']
+                    stop_event.wait(timeout=30)
+                    continue
 
             # Try to claim a job
             job = queue_ops.claim_download_job(worker_id)
@@ -270,6 +292,7 @@ def download_worker_process(
 
                     if fd_success:
                         worker_logger.info("Using fast download")
+                        queue_ops.record_fast_download(md5)
                         filepath = downloader.download_direct(
                             fd_result,
                             title=title,

@@ -244,6 +244,9 @@
                   <label for="setting-fast-key">Secret Key</label>
                   <input type="password" id="setting-fast-key" placeholder="Your Anna's Archive secret key" />
 
+                  <label for="setting-fast-daily-limit">Downloads per day (0 = unlimited)</label>
+                  <input type="number" id="setting-fast-daily-limit" min="0" max="10000" value="50" />
+
                   <button class="btn btn-secondary btn--spaced" onclick="testFastKey()">Test Key</button>
                   <div id="key-test-result" class="test-result"></div>
                 </div>
