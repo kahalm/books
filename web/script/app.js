@@ -142,7 +142,8 @@ function updateStatus() {
           const parts = [];
           if (fastLimit.nextSlot) parts.push(`Daily limit reached - next download at ${fastLimit.nextSlot.toLocaleString()}`);
           if (fastLimit.fullReset) parts.push(`All ${downloadsPerDay} available again at ${fastLimit.fullReset.toLocaleString()}`);
-          fastCard.title = parts.join("\n") || "Fast downloads left in the last 24 hours";
+          parts.push(data.fast_download.source === "annas_archive" ? "Counter from Anna's Archive" : "Local counter");
+          fastCard.title = parts.join("\n");
           updateFastLimitTimer();
           fastCard.style.display = "block";
         } else {

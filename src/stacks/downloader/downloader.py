@@ -5,7 +5,7 @@ from stacks.utils.md5utils import extract_md5
 from stacks.utils.domainutils import get_working_domain
 from stacks.downloader.cookies import _load_cached_cookies, _save_cookies_to_cache, _prewarm_cookies
 from stacks.downloader.direct import download_direct
-from stacks.downloader.fast_download import try_fast_download, get_fast_download_info, refresh_fast_download_info
+from stacks.downloader.fast_download import try_fast_download, get_fast_download_info, refresh_fast_download_info, fetch_account_info
 from stacks.downloader.flaresolver import solve_with_flaresolverr
 from stacks.downloader.html import get_download_links, parse_download_link_from_html
 from stacks.downloader.mirrors import download_from_mirror
@@ -68,6 +68,7 @@ class AnnaDownloader:
         }
         
         self.fast_download_refresh_cooldown = 3600  # 1 hour
+        self.fast_download_account = None  # last account_fast_download_info
         
         # FlareSolverr configuration
         # Normalize URL: add http:// if no scheme is present
@@ -120,6 +121,9 @@ class AnnaDownloader:
     # Fast Download
     def try_fast_download(self, md5):
         return try_fast_download(self, md5)
+
+    def fetch_account_info(self, probe_md5):
+        return fetch_account_info(self, probe_md5)
 
     def get_fast_download_info(self):
         return get_fast_download_info(self)

@@ -13,6 +13,7 @@ import logging
 import signal
 import sys
 import time
+from datetime import datetime
 from multiprocessing import Event
 from pathlib import Path
 from typing import Optional
@@ -189,6 +190,7 @@ def download_worker_process(
         worker_logger.debug(f"Status: {status_message}")
 
     limit_logged_until = None
+    last_quota_check = 0.0
     last_config_load = 0.0
 
     # Main worker loop
@@ -203,20 +205,36 @@ def download_worker_process(
                 stop_event.wait(timeout=5)
                 continue
 
-            # Daily fast download limit reached: leave the queue untouched
-            # until the oldest counted download is 24 hours old
+            # Fast download quota exhausted: leave the queue untouched until
+            # the oldest counted download leaves Anna's 18h window
             if time.monotonic() - last_config_load > 30:
                 config.load()  # settings may have changed in the UI
                 last_config_load = time.monotonic()
             if config.get('fast_download', 'enabled', default=False) \
                     and config.get('fast_download', 'key'):
-                usage = queue_ops.get_fast_download_usage(
-                    config.get('fast_download', 'daily_limit', default=50))
+                limit = config.get('fast_download', 'daily_limit', default=50)
+                usage = queue_ops.get_fast_download_usage(limit)
+
+                # Re-read Anna's own counter while books are waiting
+                now_mono = time.monotonic()
+                slot_due = usage['exhausted'] and usage['next_slot'] \
+                    and datetime.fromisoformat(usage['next_slot']) <= datetime.now().astimezone()
+                interval = 900 if usage['exhausted'] else 120
+                if queue_ops.has_queued_downloads() and (slot_due and now_mono - last_quota_check > 60
+                                                         or now_mono - last_quota_check > interval):
+                    last_quota_check = now_mono
+                    if downloader is None:
+                        downloader = create_downloader(config, progress_callback, status_callback)
+                    info = downloader.fetch_account_info(queue_ops.latest_fast_download_md5())
+                    if info:
+                        queue_ops.set_fast_download_account(info)
+                        usage = queue_ops.get_fast_download_usage(limit)
+
                 if usage['exhausted']:
                     if limit_logged_until != usage['next_slot']:
                         worker_logger.info(
-                            f"Daily fast download limit reached ({usage['used']}/{usage['limit']}), "
-                            f"waiting until {usage['next_slot']}")
+                            f"Fast download quota used up ({usage['used']}/{usage['limit']}, "
+                            f"source: {usage['source']}), waiting until {usage['next_slot']}")
                         limit_logged_until = usage['next_slot']
                     stop_event.wait(timeout=30)
                     continue
@@ -292,6 +310,8 @@ def download_worker_process(
 
                     if fd_success:
                         worker_logger.info("Using fast download")
+                        if downloader.fast_download_account:
+                            queue_ops.set_fast_download_account(downloader.fast_download_account)
                         queue_ops.record_fast_download(md5)
                         filepath = downloader.download_direct(
                             fd_result,

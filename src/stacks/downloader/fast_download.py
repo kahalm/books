@@ -7,9 +7,7 @@ def _try_fast_download_single_domain(d, md5, domain):
     if not d.fast_download_enabled or not d.fast_download_key:
         return False, "Fast download not configured"
 
-    if d.fast_download_info.get('downloads_left') is not None:
-        if d.fast_download_info['downloads_left'] <= 0:
-            return False, "No fast downloads remaining"
+    # Quota is checked by the download worker against fresh account info
 
     d.logger.debug(f"Attempting fast download from {domain}...")
 
@@ -28,6 +26,7 @@ def _try_fast_download_single_domain(d, md5, domain):
     if 'download_url' in data and data['download_url']:
         if 'account_fast_download_info' in data:
             info = data['account_fast_download_info']
+            d.fast_download_account = info  # full info incl. recently_downloaded_md5s
             d.fast_download_info.update({
                 'available': True,
                 'downloads_left': info.get('downloads_left'),
@@ -49,9 +48,7 @@ def try_fast_download(d, md5):
     if not d.fast_download_enabled or not d.fast_download_key:
         return False, "Fast download not configured"
 
-    if d.fast_download_info.get('downloads_left') is not None:
-        if d.fast_download_info['downloads_left'] <= 0:
-            return False, "No fast downloads remaining"
+    # Quota is checked by the download worker against fresh account info
 
     d.logger.info("Attempting fast download...")
 
@@ -61,6 +58,39 @@ def try_fast_download(d, md5):
         d.logger.error(f"Fast download failed on all domains: {e}")
         return False, str(e)
     
+def _fetch_account_info_single_domain(d, md5, domain):
+    api_url = f'https://{domain}/dyn/api/fast_download.json'
+    params = {'md5': md5, 'key': d.fast_download_key}
+    response = d.session.get(api_url, params=params, timeout=10)
+    data = response.json()
+    if 'account_fast_download_info' not in data:
+        raise Exception(f"No account info in API response: {data.get('error')}")
+    return data['account_fast_download_info']
+
+
+def fetch_account_info(d, probe_md5):
+    """
+    Read the account quota without using a download: probe_md5 must be a
+    file fetched within the last 18 hours (Anna's Archive does not count it
+    again). Returns account_fast_download_info or None.
+    """
+    if not d.fast_download_enabled or not d.fast_download_key or not probe_md5:
+        return None
+    try:
+        info = try_domains_until_success(_fetch_account_info_single_domain, d, probe_md5)
+    except Exception as e:
+        d.logger.warning(f"Could not read fast download quota: {e}")
+        return None
+    d.fast_download_account = info
+    d.fast_download_info.update({
+        'available': True,
+        'downloads_left': info.get('downloads_left'),
+        'downloads_per_day': info.get('downloads_per_day'),
+        'last_refresh': time.time()
+    })
+    return info
+
+
 def get_fast_download_info(d):
     """Get current fast download status."""
     return d.fast_download_info.copy()

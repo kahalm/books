@@ -466,7 +466,14 @@ class QueueOperations:
 
     # ========== Fast download daily limit ==========
 
-    FAST_DOWNLOAD_WINDOW = timedelta(hours=24)
+    # Anna's Archive counts a fast download for 18 hours (measured: the
+    # entry disappears from recently_downloaded_md5s exactly 18h later)
+    FAST_DOWNLOAD_WINDOW = timedelta(hours=18)
+
+    @staticmethod
+    def _local_aware(iso: str) -> datetime:
+        """Stored timestamps are naive local time; make them DST-safe."""
+        return datetime.fromisoformat(iso).astimezone()
 
     def record_fast_download(self, md5: str) -> None:
         """Log one used fast download (counts against the daily limit)."""
@@ -476,45 +483,137 @@ class QueueOperations:
                 "INSERT INTO fast_download_log (md5, used_at) VALUES (?, ?)",
                 (md5, datetime.now().isoformat())
             )
-            # Entries older than the window are no longer needed
-            cutoff = (datetime.now() - 2 * self.FAST_DOWNLOAD_WINDOW).isoformat()
+            # Entries older than two days are no longer needed
+            cutoff = (datetime.now() - timedelta(days=2)).isoformat()
             conn.execute("DELETE FROM fast_download_log WHERE used_at < ?", (cutoff,))
             conn.commit()
         finally:
             conn.close()
 
-    def get_fast_download_usage(self, limit: int) -> dict:
-        """
-        Fast downloads used in the last 24 hours.
-
-        Returns {used, limit, exhausted, next_slot, full_reset}; next_slot is the
-        ISO time when the oldest counted download leaves the window (only if
-        exhausted), full_reset when the newest one does (counter back at 0).
-        A limit of 0 means unlimited.
-        """
-        since = (datetime.now() - self.FAST_DOWNLOAD_WINDOW).isoformat()
+    def _recent_fast_downloads(self) -> list:
+        """[(md5, aware first-use time)] inside the window, oldest first, one per md5."""
+        since = datetime.now() - 2 * self.FAST_DOWNLOAD_WINDOW
         conn = get_connection()
         try:
             rows = conn.execute(
-                "SELECT used_at FROM fast_download_log WHERE used_at >= ? ORDER BY used_at",
-                (since,)
+                "SELECT md5, MIN(used_at) AS used_at FROM fast_download_log "
+                "WHERE used_at >= ? GROUP BY md5 ORDER BY used_at",
+                (since.isoformat(),)
             ).fetchall()
         finally:
             conn.close()
+        cutoff = datetime.now().astimezone() - self.FAST_DOWNLOAD_WINDOW
+        result = [(r['md5'], self._local_aware(r['used_at'])) for r in rows]
+        return [(m, t) for m, t in result if t >= cutoff]
 
-        used = len(rows)
-        exhausted = bool(limit) and used >= limit
+    def has_queued_downloads(self) -> bool:
+        conn = get_connection()
+        try:
+            return conn.execute(
+                "SELECT 1 FROM downloads WHERE status = 'queued' LIMIT 1"
+            ).fetchone() is not None
+        finally:
+            conn.close()
+
+    def latest_fast_download_md5(self) -> Optional[str]:
+        """MD5 of the newest counted download - safe to probe the API with
+        (Anna's Archive does not count a file twice within the window)."""
+        recent = self._recent_fast_downloads()
+        return max(recent, key=lambda x: x[1])[0] if recent else None
+
+    def set_fast_download_account(self, info: dict) -> None:
+        """Cache account_fast_download_info from Anna's Archive."""
+        data = {
+            'downloads_left': info.get('downloads_left'),
+            'downloads_per_day': info.get('downloads_per_day'),
+            'downloads_done_today': info.get('downloads_done_today'),
+            'recently_downloaded_md5s': info.get('recently_downloaded_md5s') or [],
+            'fetched_at': datetime.now().astimezone().isoformat(timespec='seconds'),
+        }
+        conn = get_connection()
+        try:
+            conn.execute("""
+                INSERT INTO system_flags (key, value, updated_at)
+                VALUES ('fast_download_account', ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+            """, (json.dumps(data), datetime.now().isoformat()))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_fast_download_account(self) -> Optional[dict]:
+        """Cached Anna's Archive account info, or None."""
+        conn = get_connection()
+        try:
+            row = conn.execute(
+                "SELECT value FROM system_flags WHERE key = 'fast_download_account'"
+            ).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return None
+        try:
+            return json.loads(row['value'])
+        except json.JSONDecodeError:
+            return None
+
+    def get_fast_download_usage(self, limit: int) -> dict:
+        """
+        Fast download quota.
+
+        Uses Anna's Archive's own counter (cached account info) when present,
+        corrected for downloads made after it was fetched; the configured
+        limit (0 = unlimited) applies on top. Times come from the local log:
+        next_slot = when the oldest counted download leaves the 18h window
+        (only if exhausted), full_reset = when the newest one does.
+        Returns {used, limit, left, exhausted, next_slot, full_reset, source}.
+        """
+        recent = self._recent_fast_downloads()
+        local_used = len(recent)
+        times = [t for _, t in recent]
+        source = 'local'
+
+        account = self.get_fast_download_account()
+        anna_left = None
+        per_day = None
+        if account and account.get('downloads_left') is not None:
+            fetched = datetime.fromisoformat(account['fetched_at'])
+            if datetime.now().astimezone() - fetched < self.FAST_DOWNLOAD_WINDOW:
+                listed = set(account.get('recently_downloaded_md5s') or [])
+                # Downloads after the fetch that Anna's counter does not know yet
+                newer = sum(1 for m, t in recent if t > fetched and m not in listed)
+                anna_left = max(account['downloads_left'] - newer, 0)
+                per_day = account.get('downloads_per_day')
+                source = 'annas_archive'
+                listed_times = [t for m, t in recent if m in listed or t > fetched]
+                if listed_times:
+                    times = listed_times
+
+        lefts = []
+        if anna_left is not None:
+            lefts.append(anna_left)
+        if limit:
+            lefts.append(max(limit - local_used, 0))
+        left = min(lefts) if lefts else None
+        effective_limit = min(x for x in (limit or None, per_day) if x) if (limit or per_day) else 0
+        used = (effective_limit - left) if (left is not None and effective_limit) else local_used
+        exhausted = left is not None and left <= 0
+
         next_slot = None
         if exhausted:
-            # The (used - limit + 1)-th oldest entry has to expire first
-            oldest = datetime.fromisoformat(rows[used - limit]['used_at'])
-            next_slot = (oldest + self.FAST_DOWNLOAD_WINDOW).isoformat(timespec='seconds')
-        full_reset = None
-        if rows:
-            newest = datetime.fromisoformat(rows[-1]['used_at'])
-            full_reset = (newest + self.FAST_DOWNLOAD_WINDOW).isoformat(timespec='seconds')
-        return {'used': used, 'limit': limit, 'exhausted': exhausted,
-                'next_slot': next_slot, 'full_reset': full_reset}
+            if times:
+                # The oldest counted downloads have to expire first
+                expire_needed = max(used - effective_limit + 1, 1) if effective_limit else 1
+                idx = min(expire_needed, len(times)) - 1
+                next_slot = (sorted(times)[idx] + self.FAST_DOWNLOAD_WINDOW).astimezone().isoformat(timespec='seconds')
+            else:
+                # Counted elsewhere (e.g. browser) - recheck in a while
+                next_slot = (datetime.now().astimezone() + timedelta(minutes=30)).isoformat(timespec='seconds')
+        full_reset = (max(times) + self.FAST_DOWNLOAD_WINDOW).astimezone().isoformat(timespec='seconds') if times else None
+        return {'used': used, 'limit': effective_limit, 'left': left, 'exhausted': exhausted,
+                'next_slot': next_slot, 'full_reset': full_reset, 'source': source}
 
     def complete_download(
         self,

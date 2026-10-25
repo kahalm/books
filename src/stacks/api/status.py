@@ -19,10 +19,11 @@ def _fast_download_usage(ops):
     return {
         'available': True,
         'downloads_used': usage['used'],
-        'downloads_left': max(limit - usage['used'], 0) if limit else None,
-        'downloads_per_day': limit or None,
+        'downloads_left': usage['left'],
+        'downloads_per_day': usage['limit'] or None,
         'next_slot': usage['next_slot'],
         'full_reset': usage['full_reset'],
+        'source': usage['source'],
     }
 
 
