@@ -490,7 +490,7 @@ class QueueOperations:
         finally:
             conn.close()
 
-    def _recent_fast_downloads(self) -> list:
+    def _recent_fast_downloads(self, include_expired: bool = False) -> list:
         """[(md5, aware first-use time)] inside the window, oldest first, one per md5."""
         since = datetime.now() - 2 * self.FAST_DOWNLOAD_WINDOW
         conn = get_connection()
@@ -504,6 +504,8 @@ class QueueOperations:
             conn.close()
         cutoff = datetime.now().astimezone() - self.FAST_DOWNLOAD_WINDOW
         result = [(r['md5'], self._local_aware(r['used_at'])) for r in rows]
+        if include_expired:
+            return result
         return [(m, t) for m, t in result if t >= cutoff]
 
     def has_queued_downloads(self) -> bool:
@@ -584,7 +586,11 @@ class QueueOperations:
                 listed = set(account.get('recently_downloaded_md5s') or [])
                 # Downloads after the fetch that Anna's counter does not know yet
                 newer = sum(1 for m, t in recent if t > fetched and m not in listed)
-                anna_left = max(account['downloads_left'] - newer, 0)
+                # Counted at fetch time but left the window since then
+                now = datetime.now().astimezone()
+                expired = sum(1 for m, t in self._recent_fast_downloads(include_expired=True)
+                              if m in listed and fetched < t + self.FAST_DOWNLOAD_WINDOW <= now)
+                anna_left = max(account['downloads_left'] - newer + expired, 0)
                 per_day = account.get('downloads_per_day')
                 source = 'annas_archive'
                 listed_times = [t for m, t in recent if m in listed or t > fetched]
