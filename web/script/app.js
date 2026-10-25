@@ -9,6 +9,7 @@ let lastLog = "{}";
 let consoleInterval = null;
 const md5Regex = /[a-fA-F0-9]{32}/;
 let subdirectoriesTagInput = null;
+const fastLimit = { nextSlot: null, fullReset: null }; // daily fast download limit countdown
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -136,15 +137,21 @@ function updateStatus() {
         const downloadsPerDay = data.fast_download.downloads_per_day;
         if (downloadsLeft !== null && downloadsPerDay !== null) {
           document.getElementById("stat-fast").textContent = `${downloadsLeft}/${downloadsPerDay}`;
-          fastCard.title = data.fast_download.next_slot
-            ? `Daily limit reached - next download at ${new Date(data.fast_download.next_slot).toLocaleString()}`
-            : "Fast downloads left in the last 24 hours";
+          fastLimit.nextSlot = data.fast_download.next_slot ? new Date(data.fast_download.next_slot) : null;
+          fastLimit.fullReset = data.fast_download.full_reset ? new Date(data.fast_download.full_reset) : null;
+          const parts = [];
+          if (fastLimit.nextSlot) parts.push(`Daily limit reached - next download at ${fastLimit.nextSlot.toLocaleString()}`);
+          if (fastLimit.fullReset) parts.push(`All ${downloadsPerDay} available again at ${fastLimit.fullReset.toLocaleString()}`);
+          fastCard.title = parts.join("\n") || "Fast downloads left in the last 24 hours";
+          updateFastLimitTimer();
           fastCard.style.display = "block";
         } else {
           fastCard.style.display = "none";
+          fastLimit.nextSlot = fastLimit.fullReset = null;
         }
       } else {
         fastCard.style.display = "none";
+        fastLimit.nextSlot = fastLimit.fullReset = null;
       }
 
       // Update current download
@@ -1087,3 +1094,27 @@ document.addEventListener("DOMContentLoaded", () => {
 updateStatus();
 getVersion();
 setInterval(updateStatus, 2000);
+
+// Countdown for the daily fast download limit (ticks between status polls)
+function formatCountdown(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return `${h}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`;
+}
+
+function updateFastLimitTimer() {
+  const el = document.getElementById("stat-fast-timer");
+  if (!el) return;
+  const now = Date.now();
+  if (fastLimit.nextSlot && fastLimit.nextSlot > now) {
+    el.textContent = `Next in ${formatCountdown(fastLimit.nextSlot - now)}`;
+  } else if (fastLimit.fullReset && fastLimit.fullReset > now) {
+    el.textContent = `Reset in ${formatCountdown(fastLimit.fullReset - now)}`;
+  } else {
+    el.textContent = "";
+  }
+}
+
+setInterval(updateFastLimitTimer, 1000);

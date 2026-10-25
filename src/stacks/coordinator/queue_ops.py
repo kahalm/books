@@ -487,8 +487,9 @@ class QueueOperations:
         """
         Fast downloads used in the last 24 hours.
 
-        Returns {used, limit, exhausted, next_slot}; next_slot is the ISO time
-        when the oldest counted download leaves the window (only if exhausted).
+        Returns {used, limit, exhausted, next_slot, full_reset}; next_slot is the
+        ISO time when the oldest counted download leaves the window (only if
+        exhausted), full_reset when the newest one does (counter back at 0).
         A limit of 0 means unlimited.
         """
         since = (datetime.now() - self.FAST_DOWNLOAD_WINDOW).isoformat()
@@ -508,7 +509,12 @@ class QueueOperations:
             # The (used - limit + 1)-th oldest entry has to expire first
             oldest = datetime.fromisoformat(rows[used - limit]['used_at'])
             next_slot = (oldest + self.FAST_DOWNLOAD_WINDOW).isoformat(timespec='seconds')
-        return {'used': used, 'limit': limit, 'exhausted': exhausted, 'next_slot': next_slot}
+        full_reset = None
+        if rows:
+            newest = datetime.fromisoformat(rows[-1]['used_at'])
+            full_reset = (newest + self.FAST_DOWNLOAD_WINDOW).isoformat(timespec='seconds')
+        return {'used': used, 'limit': limit, 'exhausted': exhausted,
+                'next_slot': next_slot, 'full_reset': full_reset}
 
     def complete_download(
         self,

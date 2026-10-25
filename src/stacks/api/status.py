@@ -22,6 +22,7 @@ def _fast_download_usage(ops):
         'downloads_left': max(limit - usage['used'], 0) if limit else None,
         'downloads_per_day': limit or None,
         'next_slot': usage['next_slot'],
+        'full_reset': usage['full_reset'],
     }
 
 
