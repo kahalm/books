@@ -6,6 +6,7 @@ All operations are atomic and handle concurrent access from multiple processes.
 """
 
 import json
+import os
 import logging
 import sqlite3
 import time
@@ -835,17 +836,47 @@ class QueueOperations:
 
     # lokal (28.10.): Geschwindigkeitsverlauf für die Web-Oberfläche
     def record_speed_sample(self) -> None:
-        """Summe der gemeldeten Geschwindigkeiten aller laufenden Downloads als Messpunkt speichern (48 h aufbewahren)."""
+        """
+        Tatsächlich geladene Bytes der letzten Minute als Geschwindigkeit speichern (48 h aufbewahren).
+
+        lokal (28.10.): früher Summe der gemeldeten Geschwindigkeiten im Moment der Messung — Bücher,
+        die in Sekunden durchlaufen, fielen zwischen zwei Messpunkte und fehlten in der Kurve.
+        Jetzt: Zuwachs von 'downloaded' der laufenden Downloads seit dem letzten Messpunkt plus der Rest
+        der seitdem fertig gewordenen. Ein fortgesetzter Download zählt beim ersten Sehen seine Teildatei mit.
+        """
+        last = getattr(self, '_speed_last', None)  # {md5: downloaded} beim letzten Messpunkt
         conn = get_connection()
         try:
-            total, active = 0.0, 0
-            for row in conn.execute("SELECT progress FROM downloads WHERE status = 'downloading'"):
+            now = datetime.now()
+            current, active = {}, 0
+            for row in conn.execute("SELECT md5, progress FROM downloads WHERE status = 'downloading'"):
                 active += 1
                 try:
-                    total += float((json.loads(row['progress'] or '{}') or {}).get('speed') or 0)
+                    current[row['md5']] = int((json.loads(row['progress'] or '{}') or {}).get('downloaded') or 0)
                 except (json.JSONDecodeError, TypeError, ValueError):
-                    pass
-            now = datetime.now()
+                    current[row['md5']] = 0
+            total = None
+            if last is not None:
+                since = self._speed_last_at
+                loaded = sum(max(n - last.get(m, 0), 0) for m, n in current.items())
+                for row in conn.execute(
+                        "SELECT md5, filepath, progress FROM downloads WHERE status = 'completed' AND completed_at >= ?",
+                        (since.isoformat(),)):
+                    size = 0
+                    try:
+                        size = os.path.getsize(row['filepath']) if row['filepath'] else 0
+                    except OSError:
+                        pass
+                    if not size:
+                        try:
+                            size = int((json.loads(row['progress'] or '{}') or {}).get('total_size') or 0)
+                        except (json.JSONDecodeError, TypeError, ValueError):
+                            size = 0
+                    loaded += max(size - last.get(row['md5'], 0), 0)
+                total = loaded / max((now - since).total_seconds(), 1)
+            self._speed_last, self._speed_last_at = current, now
+            if total is None:
+                return  # erster Aufruf nach dem Start: noch kein Vergleichswert
             conn.execute("INSERT OR REPLACE INTO speed_samples (ts, speed, active) VALUES (?, ?, ?)",
                          (now.replace(second=0, microsecond=0).isoformat(), total, active))
             conn.execute("DELETE FROM speed_samples WHERE ts < ?", ((now - timedelta(hours=48)).isoformat(),))
