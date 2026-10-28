@@ -70,12 +70,14 @@ MIRROR_SLOTS_PER_DOMAIN = 3  # lokal 28.10.: gleichzeitige Downloads je Mirror-D
 # lokal 28.10.: Download-Server des schnellen Downloads (domain_index der API); Worker download-N hat als
 # Heimat Eintrag N mod 5: 0 yqrii5.org, 6 momot.rs, 12 wbsg8v.xyz, 13 b4mcx2ml.net, 14 asuycdg6.org.
 FAST_DOWNLOAD_DOMAIN_INDEXES = [0, 6, 12, 13, 14]
-# Selbst anpassend: Worker ab Nummer len(FAST_DOWNLOAD_DOMAIN_INDEXES) wechseln auf den schnellsten Server,
+# Selbst anpassend (je Server/Host gemessen): Worker ab Nummer len(FAST_DOWNLOAD_DOMAIN_INDEXES) wechseln auf den schnellsten Server,
 # wenn der in den letzten FAST_FOCUS_WINDOW_MIN Minuten (mind. FAST_FOCUS_MIN_SAMPLES Downloads) mindestens
 # FAST_FOCUS_FACTOR-mal schneller war als der Median der anderen; die ersten bleiben als Messfühler daheim.
 FAST_FOCUS_FACTOR = 4
 FAST_FOCUS_WINDOW_MIN = 20
 FAST_FOCUS_MIN_SAMPLES = 3
+# Bei HTTP 404 auf einem Pfad die nächsten path_index probieren (bis „Invalid“), höchstens so viele
+FAST_DOWNLOAD_MAX_PATHS = 4
 # lokal 28.10.: Datei-Download (connect, read) in Sekunden; read war 30 → viele „Read timed out“ bei stockenden Servern
 DOWNLOAD_TIMEOUT = (30, 90)
 SCRAPER_WORKERS = 1       # Number of scraper worker processes (keep at 1)

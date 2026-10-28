@@ -95,10 +95,11 @@ CREATE TABLE IF NOT EXISTS worker_heartbeats (
     current_download_id INTEGER
 );
 
--- lokal (28.10.): Durchsatz je Download-Server des schnellen Downloads (Auswahl des schnellsten)
-CREATE TABLE IF NOT EXISTS fast_host_stats (
+-- lokal (28.10.): Durchsatz je Download-Server des schnellen Downloads (Auswahl des schnellsten);
+-- je Host, weil Anna's Archive die Zuordnung domain_index → Server zwischendurch neu mischt
+CREATE TABLE IF NOT EXISTS fast_server_stats (
     ts TEXT NOT NULL,
-    domain_index INTEGER NOT NULL,
+    host TEXT NOT NULL,
     bytes INTEGER NOT NULL,
     secs REAL NOT NULL
 );

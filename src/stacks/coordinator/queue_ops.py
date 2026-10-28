@@ -887,24 +887,24 @@ class QueueOperations:
             conn.close()
 
     # lokal (28.10.): Durchsatz je Download-Server, damit Worker auf einen besonders schnellen wechseln
-    def record_fast_host(self, domain_index: int, nbytes: int, secs: float) -> None:
-        """Einen schnellen Download (fehlgeschlagen: nbytes = 0) für seinen Server vermerken; 2 h aufbewahren."""
+    def record_fast_host(self, host: str, nbytes: int, secs: float) -> None:
+        """Einen schnellen Download (fehlgeschlagen: nbytes = 0) für seinen Server (Host) vermerken; 2 h aufbewahren."""
         conn = get_connection()
         try:
             now = datetime.now()
-            conn.execute("INSERT INTO fast_host_stats (ts, domain_index, bytes, secs) VALUES (?, ?, ?, ?)",
-                         (now.isoformat(), domain_index, int(nbytes), max(float(secs), 0.1)))
-            conn.execute("DELETE FROM fast_host_stats WHERE ts < ?", ((now - timedelta(hours=2)).isoformat(),))
+            conn.execute("INSERT INTO fast_server_stats (ts, host, bytes, secs) VALUES (?, ?, ?, ?)",
+                         (now.isoformat(), host, int(nbytes), max(float(secs), 0.1)))
+            conn.execute("DELETE FROM fast_server_stats WHERE ts < ?", ((now - timedelta(hours=2)).isoformat(),))
             conn.commit()
         finally:
             conn.close()
 
     def fast_host_rates(self, minutes: int) -> dict:
-        """{domain_index: (Bytes je Sekunde, Anzahl)} der letzten Minuten."""
+        """{host: (Bytes je Sekunde, Anzahl)} der letzten Minuten."""
         conn = get_connection()
         try:
             rows = conn.execute(
-                "SELECT domain_index, SUM(bytes), SUM(secs), COUNT(*) FROM fast_host_stats WHERE ts >= ? GROUP BY domain_index",
+                "SELECT host, SUM(bytes), SUM(secs), COUNT(*) FROM fast_server_stats WHERE ts >= ? GROUP BY host",
                 ((datetime.now() - timedelta(minutes=minutes)).isoformat(),)).fetchall()
         finally:
             conn.close()

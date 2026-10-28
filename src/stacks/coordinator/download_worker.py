@@ -107,28 +107,70 @@ def fast_download_domain_index(worker_id: str) -> int:
     return FAST_DOWNLOAD_DOMAIN_INDEXES[n % len(FAST_DOWNLOAD_DOMAIN_INDEXES)]
 
 
-def choose_fast_domain_index(worker_id: str, queue_ops) -> int:
+def choose_fast_host(worker_id: str, queue_ops) -> Optional[str]:
     """
-    lokal (28.10.): Heimat-Server, außer ein Server ist gerade besonders schnell — dann wechseln die Worker
-    ab Nummer len(FAST_DOWNLOAD_DOMAIN_INDEXES) dorthin; die ersten bleiben als Messfühler auf ihrem Server.
+    lokal (28.10.): Gerade besonders schneller Download-Server (Host) für Worker ab Nummer
+    len(FAST_DOWNLOAD_DOMAIN_INDEXES), sonst None (Heimat-Server); die ersten bleiben als Messfühler daheim.
     """
     from stacks.constants import (FAST_DOWNLOAD_DOMAIN_INDEXES, FAST_FOCUS_FACTOR,
                                   FAST_FOCUS_WINDOW_MIN, FAST_FOCUS_MIN_SAMPLES)
-    home = fast_download_domain_index(worker_id)
     suffix = worker_id.rsplit('-', 1)[-1]
     if not suffix.isdigit() or int(suffix) < len(FAST_DOWNLOAD_DOMAIN_INDEXES):
-        return home
+        return None
     try:
         rates = queue_ops.fast_host_rates(FAST_FOCUS_WINDOW_MIN)
     except Exception:
-        return home
-    rated = {i: r for i, (r, n) in rates.items() if n >= FAST_FOCUS_MIN_SAMPLES and i in FAST_DOWNLOAD_DOMAIN_INDEXES}
+        return None
+    rated = {h: r for h, (r, n) in rates.items() if n >= FAST_FOCUS_MIN_SAMPLES}
     if not rated:
-        return home
+        return None
     best = max(rated, key=rated.get)
-    others = sorted(r for i, (r, n) in rates.items() if i != best and i in FAST_DOWNLOAD_DOMAIN_INDEXES)
+    others = sorted(r for h, (r, n) in rates.items() if h != best)
     median = others[len(others) // 2] if others else 0.0
-    return best if rated[best] >= FAST_FOCUS_FACTOR * max(median, 1.0) else home
+    return best if rated[best] >= FAST_FOCUS_FACTOR * max(median, 1.0) else None
+
+
+def get_fast_download_url(downloader, md5: str, worker_id: str, queue_ops, worker_logger):
+    """
+    lokal (28.10.): Link des schnellen Downloads holen.
+    - Ist ein Server gerade besonders schnell, den domain_index suchen, der jetzt zu ihm führt
+      (die Zuordnung wechselt), sonst den Heimat-Index des Workers.
+    - Liefert der Server für einen Pfad 404, die nächsten path_index probieren (bis „Invalid“).
+    Mehrere Anfragen für dieselbe md5 zählen nur einmal. Gibt (ok, url_oder_fehler, host) zurück.
+    """
+    from stacks.constants import FAST_DOWNLOAD_DOMAIN_INDEXES, FAST_DOWNLOAD_MAX_PATHS
+    cfg = downloader.fast_download_config
+    home = fast_download_domain_index(worker_id)
+    idx = home
+    target = choose_fast_host(worker_id, queue_ops)
+    if target:
+        for i in [home] + [x for x in FAST_DOWNLOAD_DOMAIN_INDEXES if x != home]:
+            cfg['domain_index'], cfg['path_index'] = i, 0
+            ok, res = downloader.try_fast_download(md5)
+            if not ok:
+                return False, res, None
+            if urlparse(res).netloc == target:
+                idx = i
+                break
+        if idx != home:
+            worker_logger.info(f"Fast download: fast server {target} via domain_index {idx}")
+    last_error = None
+    for pi in range(FAST_DOWNLOAD_MAX_PATHS):
+        cfg['domain_index'], cfg['path_index'] = idx, pi
+        ok, res = downloader.try_fast_download(md5)
+        if not ok:
+            return False, last_error or res, None
+        host = urlparse(res).netloc
+        try:
+            status = downloader.session.head(res, timeout=(15, 30), allow_redirects=True).status_code
+        except Exception:
+            status = None
+        if status == 404:
+            worker_logger.info(f"Fast download: 404 on {host} path_index {pi}, trying next path")
+            last_error = f"HTTP 404 on {host} (all paths)"
+            continue
+        return True, res, host
+    return False, last_error, None
 
 
 def download_worker_process(
@@ -347,14 +389,10 @@ def download_worker_process(
 
                 # Try fast download first if enabled
                 if downloader.fast_download_enabled and downloader.fast_download_key:
-                    # lokal (28.10.): Server je Download wählen (Heimat oder gerade besonders schneller)
-                    domain_index = choose_fast_domain_index(worker_id, queue_ops)
-                    if domain_index != downloader.fast_download_config.get('domain_index'):
-                        worker_logger.info(f"Fast download domain_index {downloader.fast_download_config.get('domain_index')} -> {domain_index}")
-                        downloader.fast_download_config['domain_index'] = domain_index
+                    # lokal (28.10.): Server wählen (Heimat oder gerade besonders schneller), bei 404 nächster Pfad
                     worker_logger.info("Trying fast download")
                     fd_started = time.time()
-                    fd_success, fd_result = downloader.try_fast_download(md5)
+                    fd_success, fd_result, fd_host = get_fast_download_url(downloader, md5, worker_id, queue_ops, worker_logger)
 
                     if fd_success:
                         worker_logger.info("Using fast download")
@@ -374,7 +412,7 @@ def download_worker_process(
                         if not stop_event.is_set():
                             try:
                                 nbytes = os.path.getsize(filepath) if filepath else 0
-                                queue_ops.record_fast_host(domain_index, nbytes, time.time() - fd_started)
+                                queue_ops.record_fast_host(fd_host, nbytes, time.time() - fd_started)
                             except Exception as e:
                                 worker_logger.debug(f"Could not record fast host speed: {e}")
                         if not filepath and stop_event.is_set():
