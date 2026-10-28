@@ -393,6 +393,21 @@ def download_worker_process(
                     worker_logger.info("Trying fast download")
                     fd_started = time.time()
                     fd_success, fd_result, fd_host = get_fast_download_url(downloader, md5, worker_id, queue_ops, worker_logger)
+                    if not fd_success and 'No downloads left' in str(fd_result):
+                        # lokal (28.10.): Kontingent doch noch leer (Stacks' Schätzung des nächsten freien Platzes
+                        # war zu früh) → Buch zurück in die Warteschlange statt „failed“ (stacks-retry gibt nach
+                        # 5 Fehlschlägen auf), Zähler neu lesen und warten
+                        worker_logger.info(f"No fast downloads left yet, requeueing {md5}")
+                        try:
+                            info = downloader.fetch_account_info(queue_ops.latest_fast_download_md5())
+                            if info:
+                                queue_ops.set_fast_download_account(info)
+                        except Exception as e:
+                            worker_logger.debug(f"Could not refresh fast download quota: {e}")
+                        queue_ops.requeue_download(md5, worker_id)
+                        _current_md5[0] = None
+                        stop_event.wait(timeout=60)
+                        continue
 
                     if fd_success:
                         worker_logger.info("Using fast download")
