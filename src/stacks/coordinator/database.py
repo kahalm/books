@@ -95,6 +95,14 @@ CREATE TABLE IF NOT EXISTS worker_heartbeats (
     current_download_id INTEGER
 );
 
+-- lokal (28.10.): Durchsatz je Download-Server des schnellen Downloads (Auswahl des schnellsten)
+CREATE TABLE IF NOT EXISTS fast_host_stats (
+    ts TEXT NOT NULL,
+    domain_index INTEGER NOT NULL,
+    bytes INTEGER NOT NULL,
+    secs REAL NOT NULL
+);
+
 -- lokal (28.10.): Gesamt-Downloadgeschwindigkeit je Minute für den 24-h-Graphen
 CREATE TABLE IF NOT EXISTS speed_samples (
     ts TEXT PRIMARY KEY,

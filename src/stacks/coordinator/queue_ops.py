@@ -884,6 +884,30 @@ class QueueOperations:
         finally:
             conn.close()
 
+    # lokal (28.10.): Durchsatz je Download-Server, damit Worker auf einen besonders schnellen wechseln
+    def record_fast_host(self, domain_index: int, nbytes: int, secs: float) -> None:
+        """Einen schnellen Download (fehlgeschlagen: nbytes = 0) für seinen Server vermerken; 2 h aufbewahren."""
+        conn = get_connection()
+        try:
+            now = datetime.now()
+            conn.execute("INSERT INTO fast_host_stats (ts, domain_index, bytes, secs) VALUES (?, ?, ?, ?)",
+                         (now.isoformat(), domain_index, int(nbytes), max(float(secs), 0.1)))
+            conn.execute("DELETE FROM fast_host_stats WHERE ts < ?", ((now - timedelta(hours=2)).isoformat(),))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def fast_host_rates(self, minutes: int) -> dict:
+        """{domain_index: (Bytes je Sekunde, Anzahl)} der letzten Minuten."""
+        conn = get_connection()
+        try:
+            rows = conn.execute(
+                "SELECT domain_index, SUM(bytes), SUM(secs), COUNT(*) FROM fast_host_stats WHERE ts >= ? GROUP BY domain_index",
+                ((datetime.now() - timedelta(minutes=minutes)).isoformat(),)).fetchall()
+        finally:
+            conn.close()
+        return {r[0]: (r[1] / r[2] if r[2] else 0.0, r[3]) for r in rows}
+
     def get_speed_history(self, hours: int = 24) -> dict:
         """Messpunkte der letzten Stunden plus fertige Downloads je halbe Stunde."""
         since = (datetime.now() - timedelta(hours=hours)).isoformat()

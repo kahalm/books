@@ -9,6 +9,7 @@ Each download worker runs in its own process and:
 """
 
 import json
+import os
 import logging
 import signal
 import sys
@@ -104,6 +105,30 @@ def fast_download_domain_index(worker_id: str) -> int:
     suffix = worker_id.rsplit('-', 1)[-1]
     n = int(suffix) if suffix.isdigit() else 0
     return FAST_DOWNLOAD_DOMAIN_INDEXES[n % len(FAST_DOWNLOAD_DOMAIN_INDEXES)]
+
+
+def choose_fast_domain_index(worker_id: str, queue_ops) -> int:
+    """
+    lokal (28.10.): Heimat-Server, außer ein Server ist gerade besonders schnell — dann wechseln die Worker
+    ab Nummer len(FAST_DOWNLOAD_DOMAIN_INDEXES) dorthin; die ersten bleiben als Messfühler auf ihrem Server.
+    """
+    from stacks.constants import (FAST_DOWNLOAD_DOMAIN_INDEXES, FAST_FOCUS_FACTOR,
+                                  FAST_FOCUS_WINDOW_MIN, FAST_FOCUS_MIN_SAMPLES)
+    home = fast_download_domain_index(worker_id)
+    suffix = worker_id.rsplit('-', 1)[-1]
+    if not suffix.isdigit() or int(suffix) < len(FAST_DOWNLOAD_DOMAIN_INDEXES):
+        return home
+    try:
+        rates = queue_ops.fast_host_rates(FAST_FOCUS_WINDOW_MIN)
+    except Exception:
+        return home
+    rated = {i: r for i, (r, n) in rates.items() if n >= FAST_FOCUS_MIN_SAMPLES and i in FAST_DOWNLOAD_DOMAIN_INDEXES}
+    if not rated:
+        return home
+    best = max(rated, key=rated.get)
+    others = sorted(r for i, (r, n) in rates.items() if i != best and i in FAST_DOWNLOAD_DOMAIN_INDEXES)
+    median = others[len(others) // 2] if others else 0.0
+    return best if rated[best] >= FAST_FOCUS_FACTOR * max(median, 1.0) else home
 
 
 def download_worker_process(
@@ -322,7 +347,13 @@ def download_worker_process(
 
                 # Try fast download first if enabled
                 if downloader.fast_download_enabled and downloader.fast_download_key:
+                    # lokal (28.10.): Server je Download wählen (Heimat oder gerade besonders schneller)
+                    domain_index = choose_fast_domain_index(worker_id, queue_ops)
+                    if domain_index != downloader.fast_download_config.get('domain_index'):
+                        worker_logger.info(f"Fast download domain_index {downloader.fast_download_config.get('domain_index')} -> {domain_index}")
+                        downloader.fast_download_config['domain_index'] = domain_index
                     worker_logger.info("Trying fast download")
+                    fd_started = time.time()
                     fd_success, fd_result = downloader.try_fast_download(md5)
 
                     if fd_success:
@@ -340,7 +371,13 @@ def download_worker_process(
                         if filepath:
                             success = True
                             used_fast_download = True
-                        elif stop_event.is_set():
+                        if not stop_event.is_set():
+                            try:
+                                nbytes = os.path.getsize(filepath) if filepath else 0
+                                queue_ops.record_fast_host(domain_index, nbytes, time.time() - fd_started)
+                            except Exception as e:
+                                worker_logger.debug(f"Could not record fast host speed: {e}")
+                        if not filepath and stop_event.is_set():
                             worker_logger.info("Download cancelled during fast download")
                             continue
 
