@@ -251,6 +251,9 @@ def download_worker_process(
                         stop_event.wait(timeout=30)
                         continue
                     worker_logger.info(f"Quota used up, retrying already counted {job.get('md5')}")
+                else:
+                    # lokal (28.10.): freie Plätze zuerst für neue Bücher; reservierte (schon gezählte) erst danach
+                    job = queue_ops.claim_download_job(worker_id, skip_md5s=queue_ops.counted_fast_download_md5s())
 
             # Try to claim a job
             if job is None:

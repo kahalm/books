@@ -372,7 +372,8 @@ class QueueOperations:
     # Job dispatch - Download workers
     # -------------------------------------------------------------------------
 
-    def claim_download_job(self, worker_id: str, only_md5s: Optional[set] = None) -> Optional[dict]:
+    def claim_download_job(self, worker_id: str, only_md5s: Optional[set] = None,
+                           skip_md5s: Optional[set] = None) -> Optional[dict]:
         """
         Find and claim a download job with an available mirror.
 
@@ -408,6 +409,9 @@ class QueueOperations:
             for row in queued_rows:
                 # lokal (28.10.): bei leerem Kontingent nur Bücher, die Anna's Archive schon gezählt hat
                 if only_md5s is not None and row['md5'] not in only_md5s:
+                    continue
+                # lokal (28.10.): solange Kontingent frei ist, erst neue Bücher, die reservierten danach
+                if skip_md5s and row['md5'] in skip_md5s:
                     continue
                 mirrors_json = row['mirrors']
                 if not mirrors_json:
