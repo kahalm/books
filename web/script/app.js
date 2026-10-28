@@ -1197,6 +1197,8 @@ function updateSpeedGraph(force) {
     .catch((err) => console.error("Failed to load speed history:", err));
 }
 
+let speedGraphSlice = null; // lokal (28.10.): Beginn des angeklickten 30-min-Balkens (ms)
+
 function drawSpeedGraph(h) {
   const svg = document.getElementById("speed-svg");
   if (!svg) return;
@@ -1225,10 +1227,19 @@ function drawSpeedGraph(h) {
     if (d.getHours() % 3 === 0)
       parts.push(el("text", { x: x(t) + 2, y: H - 3, fill: "rgba(255,255,255,0.55)", "font-size": 11 }, `${d.getHours()}:00`));
   }
-  // fertige Bücher je 30 min als Balken
-  const bw = (1800 * 1000 / (end - start)) * W;
+  // fertige Bücher je 30 min als Balken; Klick zeigt Anzahl + Ø-Geschwindigkeit des Abschnitts
+  const slice = 1800 * 1000;
+  const bw = (slice / (end - start)) * W;
+  const hm = (t) => { const d = new Date(t); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`; };
+  const sliceInfo = (t, n) => {
+    const v = samples.filter(([st]) => st >= t && st < t + slice).map((s) => s[1]);
+    const avg = v.length ? `Ø ${formatBytes(v.reduce((a, b) => a + b, 0) / v.length)}/s` : "keine Geschwindigkeitsmessung";
+    return `${hm(t)}–${hm(t + slice)}: ${n} ${n === 1 ? "Buch" : "Bücher"} fertig · ${avg}`;
+  };
+  if (!done.some(([t]) => t === speedGraphSlice)) speedGraphSlice = null;
   for (const [t, n] of done)
-    parts.push(el("rect", { x: x(t), y: yN(n), width: Math.max(bw - 1, 1), height: H - bottom - yN(n), fill: "rgba(139,233,253,0.35)" }));
+    parts.push(el("rect", { x: x(t), y: yN(n), width: Math.max(bw - 1, 1), height: H - bottom - yN(n),
+      fill: t === speedGraphSlice ? "rgba(139,233,253,0.8)" : "rgba(139,233,253,0.35)" }));
   // Geschwindigkeit als Fläche + Linie; Lücken > 3 min trennen die Kurve
   if (samples.length) {
     let segs = [[samples[0]]];
@@ -1243,6 +1254,16 @@ function drawSpeedGraph(h) {
       parts.push(el("polyline", { points: pts, fill: "none", stroke: "#50fa7b", "stroke-width": 1.5, "vector-effect": "non-scaling-stroke" }));
     }
   }
+  // Klickflächen über die volle Höhe, über der Kurve (flache Balken sonst kaum zu treffen)
+  for (const [t, n] of done) {
+    const hit = el("rect", { x: x(t), y: top, width: Math.max(bw, 2), height: H - bottom - top, fill: "transparent", style: "cursor: pointer" });
+    hit.append(el("title", {}, sliceInfo(t, n)));
+    hit.addEventListener("click", () => {
+      speedGraphSlice = speedGraphSlice === t ? null : t;
+      drawSpeedGraph(h);
+    });
+    parts.push(hit);
+  }
   parts.push(el("text", { x: 4, y: top + 10, fill: "#50fa7b", "font-size": 11 }, `max ${formatBytes(maxV)}/s`));
   parts.push(el("text", { x: W - 4, y: top + 10, fill: "rgba(139,233,253,0.9)", "font-size": 11, "text-anchor": "end" }, `max ${maxN} Bücher/30 min`));
   svg.replaceChildren(...parts);
@@ -1250,6 +1271,8 @@ function drawSpeedGraph(h) {
   const avg = samples.length ? samples.reduce((s, v) => s + v[1], 0) / samples.length : 0;
   document.getElementById("speed-graph-info").textContent =
     `24 h: ${nDone} Bücher fertig · Ø ${formatBytes(avg)}/s` + (samples.length < 60 ? " · Geschwindigkeit wird erst seit dem Update aufgezeichnet" : "");
+  const sel = done.find(([t]) => t === speedGraphSlice);
+  document.getElementById("speed-graph-slice").textContent = sel ? sliceInfo(sel[0], sel[1]) : "";
 }
 
 // lokal (28.10.): 24-h-Graph der Gesamtgeschwindigkeit, jede Minute neu (erst hier: speedHistoryAt ist ein let weiter oben)
