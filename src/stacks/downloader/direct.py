@@ -5,6 +5,7 @@ import shutil
 import hashlib
 from pathlib import Path
 from urllib.parse import urlparse, unquote
+from stacks.constants import DOWNLOAD_TIMEOUT
 
 
 GENERIC_URL_FILENAMES = {
@@ -137,7 +138,7 @@ def download_direct(d, download_url, title=None, total_size=None, supports_resum
                     headers['Range'] = f'bytes={downloaded}-'
                     d.logger.info(f"Resuming from byte {downloaded}")
 
-                response = d.session.get(download_url, headers=headers, stream=True, timeout=30)
+                response = d.session.get(download_url, headers=headers, stream=True, timeout=DOWNLOAD_TIMEOUT)
 
                 response_filename = _extract_response_filename(response)
                 final_url_filename = _extract_url_filename(response.url)
@@ -155,7 +156,7 @@ def download_direct(d, download_url, title=None, total_size=None, supports_resum
                     d.logger.info(f"Found partial file: {downloaded}/{total_size if total_size else '?'} bytes")
                     response.close()
                     headers['Range'] = f'bytes={downloaded}-'
-                    response = d.session.get(download_url, headers=headers, stream=True, timeout=30)
+                    response = d.session.get(download_url, headers=headers, stream=True, timeout=DOWNLOAD_TIMEOUT)
 
                 # Range not satisfiable → the partial file is unusable, start fresh. Any other error status (429 Too Many
                 # Requests, 403, 5xx) is NOT a missing resume capability: keep the partial file and retry later instead
@@ -164,7 +165,7 @@ def download_direct(d, download_url, title=None, total_size=None, supports_resum
                     d.logger.warning("Range not satisfiable (416), starting fresh")
                     downloaded = 0
                     temp_path.unlink(missing_ok=True)
-                    response = d.session.get(download_url, stream=True, timeout=30)
+                    response = d.session.get(download_url, stream=True, timeout=DOWNLOAD_TIMEOUT)
                 if response.status_code not in [200, 206]:
                     response.close()
                     raise Exception(f"HTTP {response.status_code} from server (partial file kept: {downloaded} bytes)")

@@ -70,6 +70,8 @@ MIRROR_SLOTS_PER_DOMAIN = 3  # lokal 28.10.: gleichzeitige Downloads je Mirror-D
 # lokal 28.10.: Download-Server des schnellen Downloads (domain_index der API); je Worker fest einer,
 # damit sich die Worker gleichmäßig verteilen: 0 yqrii5.org, 6 momot.rs, 12 wbsg8v.xyz, 13 b4mcx2ml.net, 14 asuycdg6.org
 FAST_DOWNLOAD_DOMAIN_INDEXES = [0, 6, 12, 13, 14]
+# lokal 28.10.: Datei-Download (connect, read) in Sekunden; read war 30 → viele „Read timed out“ bei stockenden Servern
+DOWNLOAD_TIMEOUT = (30, 90)
 SCRAPER_WORKERS = 1       # Number of scraper worker processes (keep at 1)
 WORKER_HEARTBEAT_INTERVAL = 10  # Seconds between worker heartbeats
 WORKER_TIMEOUT = 120      # Seconds before a worker is considered dead (downloads can be slow)
