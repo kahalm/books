@@ -28,7 +28,7 @@ from stacks.downloader.sources import filter_mirrors_for_policy
 logger = logging.getLogger(__name__)
 
 
-def create_downloader(config: Config, progress_callback=None, status_callback=None):
+def create_downloader(config: Config, progress_callback=None, status_callback=None, domain_index=0):
     """
     Create an AnnaDownloader instance with the given config.
 
@@ -47,7 +47,7 @@ def create_downloader(config: Config, progress_callback=None, status_callback=No
         'enabled': config.get('fast_download', 'enabled', default=False),
         'key': config.get('fast_download', 'key'),
         'path_index': 0,
-        'domain_index': 0
+        'domain_index': domain_index
     }
 
     # Get FlareSolverr config
@@ -98,6 +98,14 @@ def _extract_domain(url: str) -> str:
         return ''
 
 
+def fast_download_domain_index(worker_id: str) -> int:
+    """lokal (28.10.): download-N bekommt Download-Server N mod Anzahl (gleichmäßig verteilt)."""
+    from stacks.constants import FAST_DOWNLOAD_DOMAIN_INDEXES
+    suffix = worker_id.rsplit('-', 1)[-1]
+    n = int(suffix) if suffix.isdigit() else 0
+    return FAST_DOWNLOAD_DOMAIN_INDEXES[n % len(FAST_DOWNLOAD_DOMAIN_INDEXES)]
+
+
 def download_worker_process(
     worker_id: str,
     config_path: Path,
@@ -131,7 +139,7 @@ def download_worker_process(
     _fh.setFormatter(_formatter)
     _root.addHandler(_fh)
     worker_logger = logging.getLogger(f'worker.{worker_id}')
-    worker_logger.info(f"Download worker {worker_id} starting")
+    worker_logger.info(f"Download worker {worker_id} starting (fast download domain_index {fast_download_domain_index(worker_id)})")
 
     # Handle signals gracefully
     def signal_handler(signum, frame):
@@ -225,7 +233,7 @@ def download_worker_process(
                                                          or now_mono - last_quota_check > interval):
                     last_quota_check = now_mono
                     if downloader is None:
-                        downloader = create_downloader(config, progress_callback, status_callback)
+                        downloader = create_downloader(config, progress_callback, status_callback, fast_download_domain_index(worker_id))
                     info = downloader.fetch_account_info(queue_ops.latest_fast_download_md5())
                     if info:
                         queue_ops.set_fast_download_account(info)
@@ -292,7 +300,7 @@ def download_worker_process(
             if downloader is None:
                 worker_logger.info("Initializing downloader")
                 config.load()  # Reload config
-                downloader = create_downloader(config, progress_callback, status_callback)
+                downloader = create_downloader(config, progress_callback, status_callback, fast_download_domain_index(worker_id))
 
             # Reset per-job state
             cancel_flag = None
