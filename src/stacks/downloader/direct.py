@@ -157,11 +157,17 @@ def download_direct(d, download_url, title=None, total_size=None, supports_resum
                     headers['Range'] = f'bytes={downloaded}-'
                     response = d.session.get(download_url, headers=headers, stream=True, timeout=30)
 
-                if downloaded > 0 and response.status_code not in [200, 206]:
-                    d.logger.warning(f"Resume not supported (status {response.status_code}), starting fresh")
+                # Range not satisfiable → the partial file is unusable, start fresh. Any other error status (429 Too Many
+                # Requests, 403, 5xx) is NOT a missing resume capability: keep the partial file and retry later instead
+                # of saving the error page as the book (MD5 mismatch).
+                if downloaded > 0 and response.status_code == 416:
+                    d.logger.warning("Range not satisfiable (416), starting fresh")
                     downloaded = 0
                     temp_path.unlink(missing_ok=True)
                     response = d.session.get(download_url, stream=True, timeout=30)
+                if response.status_code not in [200, 206]:
+                    response.close()
+                    raise Exception(f"HTTP {response.status_code} from server (partial file kept: {downloaded} bytes)")
 
                 # Server ignored the Range header and sent the whole file again (200 instead of 206): appending it to the
                 # partial file would produce a file larger than total_size (>100 %) and an MD5 mismatch → start fresh,
