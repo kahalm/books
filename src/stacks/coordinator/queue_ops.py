@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
-from stacks.constants import WORKER_HEARTBEAT_INTERVAL, MIRROR_SLOTS_PER_DOMAIN
+from stacks.constants import WORKER_HEARTBEAT_INTERVAL, MIRROR_SLOTS_PER_DOMAIN, DOWNLOAD_WORKERS
 from stacks.coordinator.database import (
     get_connection,
     get_heartbeat_connection,
@@ -437,8 +437,10 @@ class QueueOperations:
                     logger.debug(f"Attempting to claim mirror: {domain}")
                     try:
                         # Try to claim this mirror (atomic via UNIQUE constraint)
-                        # lokal (28.10.): bis zu MIRROR_SLOTS_PER_DOMAIN gleichzeitige Downloads je Domain
-                        for slot in range(MIRROR_SLOTS_PER_DOMAIN):
+                        # lokal (28.10.): bis zu MIRROR_SLOTS_PER_DOMAIN gleichzeitige Downloads je Domain;
+                        # 'fast-download' ist keine echte Domain (dahinter 5 Download-Server) → so viele wie Worker
+                        slots = DOWNLOAD_WORKERS if domain == 'fast-download' else MIRROR_SLOTS_PER_DOMAIN
+                        for slot in range(slots):
                             key = domain if slot == 0 else f"{domain}#{slot}"
                             try:
                                 conn.execute("""
@@ -447,7 +449,7 @@ class QueueOperations:
                                 """, (key, worker_id, datetime.now().isoformat()))
                                 break
                             except sqlite3.IntegrityError:
-                                if slot == MIRROR_SLOTS_PER_DOMAIN - 1:
+                                if slot == slots - 1:
                                     raise
 
                         # Mirror claimed! Now claim the download job
