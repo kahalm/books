@@ -393,7 +393,16 @@ def download_worker_process(
                     worker_logger.info("Trying fast download")
                     fd_started = time.time()
                     fd_success, fd_result, fd_host = get_fast_download_url(downloader, md5, worker_id, queue_ops, worker_logger)
-                    if not fd_success and 'No downloads left' in str(fd_result):
+                    quota_empty = not fd_success and 'No downloads left' in str(fd_result)
+                    if not fd_success and not quota_empty and md5 not in queue_ops.counted_fast_download_md5s():
+                        # lokal (28.10.): die Domain-Rotation meldet nur den letzten Fehler (z. B. annas-archive.vg
+                        # nicht erreichbar), obwohl eine andere Domain „No downloads left“ sagte → Zähler fragen
+                        try:
+                            usage = queue_ops.get_fast_download_usage(config.get('fast_download', 'daily_limit', default=50))
+                            quota_empty = bool(usage.get('exhausted'))
+                        except Exception:
+                            pass
+                    if quota_empty:
                         # lokal (28.10.): Kontingent doch noch leer (Stacks' Schätzung des nächsten freien Platzes
                         # war zu früh) → Buch zurück in die Warteschlange statt „failed“ (stacks-retry gibt nach
                         # 5 Fehlschlägen auf), Zähler neu lesen und warten
