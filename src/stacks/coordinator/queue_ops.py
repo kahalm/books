@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
-from stacks.constants import WORKER_HEARTBEAT_INTERVAL
+from stacks.constants import WORKER_HEARTBEAT_INTERVAL, MIRROR_SLOTS_PER_DOMAIN
 from stacks.coordinator.database import (
     get_connection,
     get_heartbeat_connection,
@@ -429,19 +429,31 @@ class QueueOperations:
                     logger.debug(f"Attempting to claim mirror: {domain}")
                     try:
                         # Try to claim this mirror (atomic via UNIQUE constraint)
-                        conn.execute("""
-                            INSERT INTO busy_mirrors (domain, worker_id, claimed_at)
-                            VALUES (?, ?, ?)
-                        """, (domain, worker_id, datetime.now().isoformat()))
+                        # lokal (28.10.): bis zu MIRROR_SLOTS_PER_DOMAIN gleichzeitige Downloads je Domain
+                        for slot in range(MIRROR_SLOTS_PER_DOMAIN):
+                            key = domain if slot == 0 else f"{domain}#{slot}"
+                            try:
+                                conn.execute("""
+                                    INSERT INTO busy_mirrors (domain, worker_id, claimed_at)
+                                    VALUES (?, ?, ?)
+                                """, (key, worker_id, datetime.now().isoformat()))
+                                break
+                            except sqlite3.IntegrityError:
+                                if slot == MIRROR_SLOTS_PER_DOMAIN - 1:
+                                    raise
 
                         # Mirror claimed! Now claim the download job
-                        conn.execute("""
+                        cur = conn.execute("""
                             UPDATE downloads
                             SET status = 'downloading',
                                 assigned_worker = ?,
                                 assigned_mirror = ?
-                            WHERE id = ?
+                            WHERE id = ? AND status = 'queued'
                         """, (worker_id, json.dumps(mirror), row['id']))
+                        if cur.rowcount == 0:
+                            # lokal (28.10.): mit mehreren Slots je Domain kann ein anderer Worker den Job schon haben
+                            conn.rollback()
+                            break
 
                         conn.commit()
 
@@ -650,7 +662,7 @@ class QueueOperations:
 
             # Get the current download info (to get assigned_mirror)
             cursor = conn.execute(
-                "SELECT assigned_mirror FROM downloads WHERE md5 = ?",
+                "SELECT assigned_mirror, assigned_worker FROM downloads WHERE md5 = ?",
                 (md5,)
             )
             row = cursor.fetchone()
@@ -663,9 +675,10 @@ class QueueOperations:
                     if not domain:
                         domain = mirror.get('domain', '')
                     if domain:
+                        # lokal (28.10.): mehrere Slots je Domain (domain, domain#1, …) → nur den eigenen Slot freigeben
                         conn.execute(
-                            "DELETE FROM busy_mirrors WHERE domain = ?",
-                            (domain,)
+                            "DELETE FROM busy_mirrors WHERE (domain = ? OR domain LIKE ?) AND worker_id = ?",
+                            (domain, domain + '#%', row['assigned_worker'])
                         )
                 except (json.JSONDecodeError, KeyError):
                     pass
@@ -1184,7 +1197,7 @@ class QueueOperations:
         conn = get_connection()
         try:
             cursor = conn.execute(
-                "SELECT assigned_mirror FROM downloads WHERE md5 = ?",
+                "SELECT assigned_mirror, assigned_worker FROM downloads WHERE md5 = ?",
                 (md5,)
             )
             row = cursor.fetchone()
@@ -1196,9 +1209,10 @@ class QueueOperations:
                     if not domain:
                         domain = mirror.get('domain', '')
                     if domain:
+                        # lokal (28.10.): mehrere Slots je Domain (domain, domain#1, …) → nur den eigenen Slot freigeben
                         conn.execute(
-                            "DELETE FROM busy_mirrors WHERE domain = ?",
-                            (domain,)
+                            "DELETE FROM busy_mirrors WHERE (domain = ? OR domain LIKE ?) AND worker_id = ?",
+                            (domain, domain + '#%', row['assigned_worker'])
                         )
                 except (json.JSONDecodeError, KeyError):
                     pass
@@ -1240,7 +1254,7 @@ class QueueOperations:
         conn = get_connection()
         try:
             cursor = conn.execute(
-                "SELECT assigned_mirror FROM downloads WHERE md5 = ?",
+                "SELECT assigned_mirror, assigned_worker FROM downloads WHERE md5 = ?",
                 (md5,)
             )
             row = cursor.fetchone()
@@ -1252,9 +1266,10 @@ class QueueOperations:
                     if not domain:
                         domain = mirror.get('domain', '')
                     if domain:
+                        # lokal (28.10.): mehrere Slots je Domain (domain, domain#1, …) → nur den eigenen Slot freigeben
                         conn.execute(
-                            "DELETE FROM busy_mirrors WHERE domain = ?",
-                            (domain,)
+                            "DELETE FROM busy_mirrors WHERE (domain = ? OR domain LIKE ?) AND worker_id = ?",
+                            (domain, domain + '#%', row['assigned_worker'])
                         )
                 except (json.JSONDecodeError, KeyError):
                     pass

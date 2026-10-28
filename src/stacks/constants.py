@@ -66,6 +66,7 @@ KNOWN_MD5 = "d6e1dc51a50726f00ec438af21952a45"
 
 # Multi-process download worker configuration
 DOWNLOAD_WORKERS = 1      # Number of concurrent download worker processes (Anna's Archive rate-limits by IP)
+MIRROR_SLOTS_PER_DOMAIN = 1  # Concurrent downloads per mirror domain
 SCRAPER_WORKERS = 1       # Number of scraper worker processes (keep at 1)
 WORKER_HEARTBEAT_INTERVAL = 10  # Seconds between worker heartbeats
 WORKER_TIMEOUT = 120      # Seconds before a worker is considered dead (downloads can be slow)
