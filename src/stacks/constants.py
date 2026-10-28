@@ -67,9 +67,11 @@ KNOWN_MD5 = "d6e1dc51a50726f00ec438af21952a45"
 # Multi-process download worker configuration
 DOWNLOAD_WORKERS = 10      # Number of concurrent download worker processes (Anna's Archive rate-limits by IP; lokal hochgedreht 28.10.)
 MIRROR_SLOTS_PER_DOMAIN = 3  # lokal 28.10.: gleichzeitige Downloads je Mirror-Domain (Original 1)
-# lokal 28.10.: Download-Server des schnellen Downloads (domain_index der API); je Worker fest einer,
-# damit sich die Worker gleichmäßig verteilen: 0 yqrii5.org, 6 momot.rs, 12 wbsg8v.xyz, 13 b4mcx2ml.net, 14 asuycdg6.org
-FAST_DOWNLOAD_DOMAIN_INDEXES = [0, 6, 12, 13, 14]
+# lokal 28.10.: Download-Server des schnellen Downloads (domain_index der API); Worker download-N nimmt
+# Eintrag N mod Länge: 0 yqrii5.org, 6 momot.rs, 12 wbsg8v.xyz, 13 b4mcx2ml.net, 14 asuycdg6.org.
+# 20:50: wbsg8v.xyz liefert ~3 MB/s je Download, die anderen 4–90 KB/s → 6 von 10 Workern dorthin,
+# je einer bleibt auf den anderen (merkt, wenn einer schnell wird)
+FAST_DOWNLOAD_DOMAIN_INDEXES = [0, 6, 12, 13, 14, 12, 12, 12, 12, 12]
 # lokal 28.10.: Datei-Download (connect, read) in Sekunden; read war 30 → viele „Read timed out“ bei stockenden Servern
 DOWNLOAD_TIMEOUT = (30, 90)
 SCRAPER_WORKERS = 1       # Number of scraper worker processes (keep at 1)
