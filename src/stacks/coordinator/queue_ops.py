@@ -372,7 +372,7 @@ class QueueOperations:
     # Job dispatch - Download workers
     # -------------------------------------------------------------------------
 
-    def claim_download_job(self, worker_id: str) -> Optional[dict]:
+    def claim_download_job(self, worker_id: str, only_md5s: Optional[set] = None) -> Optional[dict]:
         """
         Find and claim a download job with an available mirror.
 
@@ -406,6 +406,9 @@ class QueueOperations:
             logger.debug(f"Found {len(queued_rows)} queued downloads to check")
 
             for row in queued_rows:
+                # lokal (28.10.): bei leerem Kontingent nur Bücher, die Anna's Archive schon gezählt hat
+                if only_md5s is not None and row['md5'] not in only_md5s:
+                    continue
                 mirrors_json = row['mirrors']
                 if not mirrors_json:
                     continue
@@ -572,6 +575,19 @@ class QueueOperations:
             return json.loads(row['value'])
         except json.JSONDecodeError:
             return None
+
+    def counted_fast_download_md5s(self) -> set:
+        """
+        lokal (28.10.): Bücher, die im 18-h-Fenster schon gezählt sind. Anna's Archive
+        zählt sie nicht noch einmal (geprüft: Link kommt auch bei 0 übrig, Zähler bleibt).
+        """
+        md5s = {m for m, _ in self._recent_fast_downloads()}
+        account = self.get_fast_download_account()
+        if account and account.get('fetched_at'):
+            fetched = datetime.fromisoformat(account['fetched_at'])
+            if datetime.now().astimezone() - fetched < self.FAST_DOWNLOAD_WINDOW:
+                md5s |= set(account.get('recently_downloaded_md5s') or [])
+        return md5s
 
     def get_fast_download_usage(self, limit: int) -> dict:
         """

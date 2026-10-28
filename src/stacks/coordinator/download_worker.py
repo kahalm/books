@@ -207,6 +207,7 @@ def download_worker_process(
 
             # Fast download quota exhausted: leave the queue untouched until
             # the oldest counted download leaves Anna's 18h window
+            job = None
             if time.monotonic() - last_config_load > 30:
                 config.load()  # settings may have changed in the UI
                 last_config_load = time.monotonic()
@@ -231,16 +232,21 @@ def download_worker_process(
                         usage = queue_ops.get_fast_download_usage(limit)
 
                 if usage['exhausted']:
-                    if limit_logged_until != usage['next_slot']:
-                        worker_logger.info(
-                            f"Fast download quota used up ({usage['used']}/{usage['limit']}, "
-                            f"source: {usage['source']}), waiting until {usage['next_slot']}")
-                        limit_logged_until = usage['next_slot']
-                    stop_event.wait(timeout=30)
-                    continue
+                    # lokal (28.10.): schon gezählte Bücher (frühere Fehlversuche) kosten nichts → weiter versuchen
+                    job = queue_ops.claim_download_job(worker_id, only_md5s=queue_ops.counted_fast_download_md5s())
+                    if not job:
+                        if limit_logged_until != usage['next_slot']:
+                            worker_logger.info(
+                                f"Fast download quota used up ({usage['used']}/{usage['limit']}, "
+                                f"source: {usage['source']}), waiting until {usage['next_slot']}")
+                            limit_logged_until = usage['next_slot']
+                        stop_event.wait(timeout=30)
+                        continue
+                    worker_logger.info(f"Quota used up, retrying already counted {job.get('md5')}")
 
             # Try to claim a job
-            job = queue_ops.claim_download_job(worker_id)
+            if job is None:
+                job = queue_ops.claim_download_job(worker_id)
 
             if not job:
                 # No jobs available, wait and retry
