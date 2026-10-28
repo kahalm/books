@@ -163,6 +163,14 @@ def download_direct(d, download_url, title=None, total_size=None, supports_resum
                     temp_path.unlink(missing_ok=True)
                     response = d.session.get(download_url, stream=True, timeout=30)
 
+                # Server ignored the Range header and sent the whole file again (200 instead of 206): appending it to the
+                # partial file would produce a file larger than total_size (>100 %) and an MD5 mismatch → start fresh,
+                # reusing this full response.
+                if downloaded > 0 and response.status_code == 200:
+                    d.logger.warning(f"Server ignored Range (status 200 at byte {downloaded}), starting fresh")
+                    downloaded = 0
+                    temp_path.unlink(missing_ok=True)
+
                 # Get total size
                 if total_size is None:
                     content_length = response.headers.get('Content-Length')
