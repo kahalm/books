@@ -95,6 +95,13 @@ CREATE TABLE IF NOT EXISTS worker_heartbeats (
     current_download_id INTEGER
 );
 
+-- lokal (28.10.): Gesamt-Downloadgeschwindigkeit je Minute für den 24-h-Graphen
+CREATE TABLE IF NOT EXISTS speed_samples (
+    ts TEXT PRIMARY KEY,
+    speed REAL NOT NULL,
+    active INTEGER NOT NULL
+);
+
 -- Migration tracking table
 CREATE TABLE IF NOT EXISTS migrations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

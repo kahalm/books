@@ -801,6 +801,43 @@ class QueueOperations:
         finally:
             conn.close()
 
+    # lokal (28.10.): Geschwindigkeitsverlauf für die Web-Oberfläche
+    def record_speed_sample(self) -> None:
+        """Summe der gemeldeten Geschwindigkeiten aller laufenden Downloads als Messpunkt speichern (48 h aufbewahren)."""
+        conn = get_connection()
+        try:
+            total, active = 0.0, 0
+            for row in conn.execute("SELECT progress FROM downloads WHERE status = 'downloading'"):
+                active += 1
+                try:
+                    total += float((json.loads(row['progress'] or '{}') or {}).get('speed') or 0)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    pass
+            now = datetime.now()
+            conn.execute("INSERT OR REPLACE INTO speed_samples (ts, speed, active) VALUES (?, ?, ?)",
+                         (now.replace(second=0, microsecond=0).isoformat(), total, active))
+            conn.execute("DELETE FROM speed_samples WHERE ts < ?", ((now - timedelta(hours=48)).isoformat(),))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_speed_history(self, hours: int = 24) -> dict:
+        """Messpunkte der letzten Stunden plus fertige Downloads je halbe Stunde."""
+        since = (datetime.now() - timedelta(hours=hours)).isoformat()
+        conn = get_connection()
+        try:
+            samples = [[r['ts'], r['speed'], r['active']] for r in
+                       conn.execute("SELECT ts, speed, active FROM speed_samples WHERE ts >= ? ORDER BY ts", (since,))]
+            completed = {}
+            for r in conn.execute("SELECT completed_at FROM downloads WHERE status = 'completed' AND completed_at >= ?", (since,)):
+                t = datetime.fromisoformat(r['completed_at'])
+                key = t.replace(minute=t.minute // 30 * 30, second=0, microsecond=0).isoformat()
+                completed[key] = completed.get(key, 0) + 1
+            return {'samples': samples, 'completed': sorted(completed.items()), 'hours': hours,
+                    'now': datetime.now().isoformat()}
+        finally:
+            conn.close()
+
     def get_busy_mirrors(self) -> list[str]:
         """Get list of currently busy mirror domains."""
         conn = get_connection()

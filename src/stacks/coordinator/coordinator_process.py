@@ -67,6 +67,7 @@ def coordinator_process(stop_event: Event) -> None:
     check_interval = 10  # Check every 10 seconds
     last_domain_update = 0
     domain_update_interval = 6 * 3600  # 6 hours
+    last_speed_sample = 0  # lokal (28.10.): Messpunkt für den Geschwindigkeitsgraphen jede Minute
 
     while not stop_event.is_set():
         try:
@@ -77,6 +78,13 @@ def coordinator_process(stop_event: Event) -> None:
             if time.time() - last_domain_update >= domain_update_interval:
                 update_wiki_domains()
                 last_domain_update = time.time()
+
+            if time.time() - last_speed_sample >= 60:
+                try:
+                    queue_ops.record_speed_sample()
+                except Exception as e:
+                    coord_logger.warning(f"Speed sample failed: {e}")
+                last_speed_sample = time.time()
 
             # Check for stale workers
             stale_workers = queue_ops.get_stale_workers(timeout_seconds=WORKER_TIMEOUT)

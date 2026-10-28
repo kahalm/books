@@ -125,3 +125,12 @@ def api_status():
         status['busy_mirrors'] = []
 
     return jsonify(status)
+
+
+# lokal (28.10.): Verlauf der Gesamtgeschwindigkeit (24 h) für den Graphen
+@api_bp.get("/api/speed_history")
+@require_auth_with_permissions(allow_downloader=False)
+def api_speed_history():
+    if not current_app.stacks_multiprocess:
+        return jsonify({'samples': [], 'completed': [], 'hours': 24})
+    return jsonify(get_queue_ops().get_speed_history(24))
