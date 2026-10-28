@@ -65,8 +65,8 @@ RE_SECRET_KEY = re.compile(r"^[A-Za-z0-9_-]{32}$")
 KNOWN_MD5 = "d6e1dc51a50726f00ec438af21952a45"
 
 # Multi-process download worker configuration
-DOWNLOAD_WORKERS = 12      # Number of concurrent download worker processes (Anna's Archive rate-limits by IP; lokal hochgedreht 28.10.)
-MIRROR_SLOTS_PER_DOMAIN = 4  # lokal 28.10.: gleichzeitige Downloads je Mirror-Domain (Original 1)
+DOWNLOAD_WORKERS = 8      # Number of concurrent download worker processes (Anna's Archive rate-limits by IP; lokal hochgedreht 28.10.)
+MIRROR_SLOTS_PER_DOMAIN = 3  # lokal 28.10.: gleichzeitige Downloads je Mirror-Domain (Original 1)
 SCRAPER_WORKERS = 1       # Number of scraper worker processes (keep at 1)
 WORKER_HEARTBEAT_INTERVAL = 10  # Seconds between worker heartbeats
 WORKER_TIMEOUT = 120      # Seconds before a worker is considered dead (downloads can be slow)
