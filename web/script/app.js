@@ -136,10 +136,15 @@ function updateStatus() {
         const downloadsLeft = data.fast_download.downloads_left;
         const downloadsPerDay = data.fast_download.downloads_per_day;
         if (downloadsLeft !== null && downloadsPerDay !== null) {
-          document.getElementById("stat-fast").textContent = `${downloadsLeft}/${downloadsPerDay}`;
+          // lokal (28.10.): frei / schon gezählt, aber noch offen (kostenlos nachladbar) / Limit
+          const countedOpen = data.fast_download.downloads_counted_open;
+          document.getElementById("stat-fast").textContent =
+            countedOpen != null ? `${downloadsLeft}/${countedOpen}/${downloadsPerDay}` : `${downloadsLeft}/${downloadsPerDay}`;
           fastLimit.nextSlot = data.fast_download.next_slot ? new Date(data.fast_download.next_slot) : null;
           fastLimit.fullReset = data.fast_download.full_reset ? new Date(data.fast_download.full_reset) : null;
           const parts = [];
+          if (countedOpen != null)
+            parts.push(`${downloadsLeft} frei · ${countedOpen} schon gezählt, noch nicht fertig (kostenlos nachladbar) · ${downloadsPerDay} je 18 h`);
           if (fastLimit.nextSlot) parts.push(`Daily limit reached - next download at ${fastLimit.nextSlot.toLocaleString()}`);
           if (fastLimit.fullReset) parts.push(`All ${downloadsPerDay} available again at ${fastLimit.fullReset.toLocaleString()}`);
           parts.push(data.fast_download.source === "annas_archive" ? "Counter from Anna's Archive" : "Local counter");

@@ -589,6 +589,18 @@ class QueueOperations:
                 md5s |= set(account.get('recently_downloaded_md5s') or [])
         return md5s
 
+    def counted_open_count(self) -> int:
+        """lokal (28.10.): schon gezählte, aber noch nicht fertige Bücher (kostenlos nachladbar)."""
+        counted = self.counted_fast_download_md5s()
+        if not counted:
+            return 0
+        conn = get_connection()
+        try:
+            rows = conn.execute("SELECT md5 FROM downloads WHERE status != 'completed'").fetchall()
+        finally:
+            conn.close()
+        return sum(1 for r in rows if r['md5'] in counted)
+
     def get_fast_download_usage(self, limit: int) -> dict:
         """
         Fast download quota.

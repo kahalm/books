@@ -21,6 +21,7 @@ def _fast_download_usage(ops):
         'downloads_used': usage['used'],
         'downloads_left': usage['left'],
         'downloads_per_day': usage['limit'] or None,
+        'downloads_counted_open': ops.counted_open_count(),  # lokal (28.10.)
         'next_slot': usage['next_slot'],
         'full_reset': usage['full_reset'],
         'source': usage['source'],
