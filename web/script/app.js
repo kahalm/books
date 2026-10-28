@@ -1098,9 +1098,6 @@ document.addEventListener("DOMContentLoaded", () => {
 updateStatus();
 getVersion();
 setInterval(updateStatus, 2000);
-// lokal (28.10.): 24-h-Graph der Gesamtgeschwindigkeit, jede Minute neu
-updateSpeedGraph(true);
-setInterval(() => updateSpeedGraph(false), 15000);
 
 // Countdown for the daily fast download limit (ticks between status polls)
 function formatCountdown(ms) {
@@ -1254,3 +1251,7 @@ function drawSpeedGraph(h) {
   document.getElementById("speed-graph-info").textContent =
     `24 h: ${nDone} Bücher fertig · Ø ${formatBytes(avg)}/s` + (samples.length < 60 ? " · Geschwindigkeit wird erst seit dem Update aufgezeichnet" : "");
 }
+
+// lokal (28.10.): 24-h-Graph der Gesamtgeschwindigkeit, jede Minute neu (erst hier: speedHistoryAt ist ein let weiter oben)
+updateSpeedGraph(true);
+setInterval(() => updateSpeedGraph(false), 15000);
