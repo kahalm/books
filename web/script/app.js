@@ -202,6 +202,9 @@ function updateStatus() {
         currentDiv.style.display = "none";
       }
 
+      // lokal (28.10.): alle laufenden Downloads in einem Panel
+      renderDownloadsPanel(data.current_downloads || []);
+
       // Update pause button state
       const pauseBtn = document.getElementById("pause-btn");
       if (data.paused) {
@@ -1095,6 +1098,9 @@ document.addEventListener("DOMContentLoaded", () => {
 updateStatus();
 getVersion();
 setInterval(updateStatus, 2000);
+// lokal (28.10.): 24-h-Graph der Gesamtgeschwindigkeit, jede Minute neu
+updateSpeedGraph(true);
+setInterval(() => updateSpeedGraph(false), 15000);
 
 // Countdown for the daily fast download limit (ticks between status polls)
 function formatCountdown(ms) {
@@ -1119,3 +1125,132 @@ function updateFastLimitTimer() {
 }
 
 setInterval(updateFastLimitTimer, 1000);
+
+
+// ============================================================================
+// lokal (28.10.): Download-Panel mit ETA, Gesamtgeschwindigkeit und 24-h-Graph
+// ============================================================================
+
+function formatEta(seconds) {
+  if (!isFinite(seconds) || seconds <= 0) return "–";
+  seconds = Math.round(seconds);
+  if (seconds < 60) return `${seconds} s`;
+  const m = Math.floor(seconds / 60);
+  if (m < 60) return `${m} min ${seconds % 60} s`;
+  const h = Math.floor(m / 60);
+  return `${h} h ${m % 60} min`;
+}
+
+function renderDownloadsPanel(downloads) {
+  const panel = document.getElementById("downloads-panel");
+  if (!panel) return;
+  const total = downloads.reduce((s, d) => s + ((d.progress || {}).speed || 0), 0);
+  document.getElementById("dl-heading").textContent = `Downloads (${downloads.length})`;
+  document.getElementById("dl-total").textContent = `Gesamt ${formatBytes(total)}/s`;
+  document.getElementById("dl-list").replaceChildren(
+    ...downloads.map((d, i) => {
+      const p = d.progress || {};
+      const pct = p.percent || 0;
+      const speed = p.speed || 0;
+      const rest = (p.total_size || 0) - (p.downloaded || 0);
+      const eta = p.total_size && speed > 0 ? formatEta(rest / speed) : "–";
+      const row = document.createElement("div");
+      row.className = "dl-row";
+      const line = document.createElement("div");
+      line.className = "dl-line";
+      const title = document.createElement("div");
+      title.className = "dl-title";
+      title.textContent = d.filename || d.md5;
+      title.title = d.filename || d.md5;
+      const meta = document.createElement("div");
+      meta.className = "dl-meta";
+      meta.textContent = `${formatBytes(p.downloaded || 0)} / ${p.total_size ? formatBytes(p.total_size) : "?"} · ${pct.toFixed(1)}% · ${formatBytes(speed)}/s · ETA ${eta}`;
+      line.append(title, meta);
+      if (i === 0) {
+        // Die API kann nur den ersten laufenden Download pausieren/abbrechen
+        const actions = document.createElement("div");
+        actions.className = "dl-actions";
+        actions.innerHTML =
+          '<button class="btn btn-primary" onclick="cancelCurrent()" title="Pause download">⏸</button>' +
+          '<button class="btn btn-danger" onclick="removeCurrent()" title="Cancel and remove">✕</button>';
+        line.append(actions);
+      }
+      const sub = document.createElement("div");
+      sub.className = "dl-sub";
+      sub.textContent = [d.status_message, d.md5].filter(Boolean).join(" · ");
+      const bar = document.createElement("div");
+      bar.className = "dl-bar";
+      const fill = document.createElement("div");
+      fill.style.width = pct + "%";
+      bar.append(fill);
+      row.append(line, sub, bar);
+      return row;
+    })
+  );
+  panel.style.display = downloads.length ? "block" : "none";
+}
+
+let speedHistoryAt = 0;
+function updateSpeedGraph(force) {
+  if (!force && Date.now() - speedHistoryAt < 60000) return;
+  speedHistoryAt = Date.now();
+  apiFetch("/api/speed_history")
+    .then((r) => r.json())
+    .then((h) => drawSpeedGraph(h))
+    .catch((err) => console.error("Failed to load speed history:", err));
+}
+
+function drawSpeedGraph(h) {
+  const svg = document.getElementById("speed-svg");
+  if (!svg) return;
+  const W = 1000, H = 140, top = 6, bottom = 16;
+  const end = new Date(h.now || Date.now()).getTime();
+  const start = end - (h.hours || 24) * 3600 * 1000;
+  const x = (t) => ((t - start) / (end - start)) * W;
+  const samples = (h.samples || []).map(([ts, v]) => [new Date(ts).getTime(), v]);
+  const maxV = Math.max(1, ...samples.map((s) => s[1]));
+  const done = (h.completed || []).map(([ts, n]) => [new Date(ts).getTime(), n]);
+  const maxN = Math.max(1, ...done.map((d) => d[1]));
+  const yV = (v) => H - bottom - (v / maxV) * (H - bottom - top);
+  const yN = (n) => H - bottom - (n / maxN) * (H - bottom - top);
+  const ns = "http://www.w3.org/2000/svg";
+  const el = (tag, attrs, text) => {
+    const e = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    if (text) e.textContent = text;
+    return e;
+  };
+  const parts = [];
+  // Stundenraster mit Uhrzeit alle 3 h
+  for (let t = Math.ceil(start / 3600000) * 3600000; t <= end; t += 3600000) {
+    const d = new Date(t);
+    parts.push(el("line", { x1: x(t), x2: x(t), y1: top, y2: H - bottom, stroke: "rgba(255,255,255,0.07)" }));
+    if (d.getHours() % 3 === 0)
+      parts.push(el("text", { x: x(t) + 2, y: H - 3, fill: "rgba(255,255,255,0.55)", "font-size": 11 }, `${d.getHours()}:00`));
+  }
+  // fertige Bücher je 30 min als Balken
+  const bw = (1800 * 1000 / (end - start)) * W;
+  for (const [t, n] of done)
+    parts.push(el("rect", { x: x(t), y: yN(n), width: Math.max(bw - 1, 1), height: H - bottom - yN(n), fill: "rgba(139,233,253,0.35)" }));
+  // Geschwindigkeit als Fläche + Linie; Lücken > 3 min trennen die Kurve
+  if (samples.length) {
+    let segs = [[samples[0]]];
+    for (let i = 1; i < samples.length; i++) {
+      if (samples[i][0] - samples[i - 1][0] > 180000) segs.push([]);
+      segs[segs.length - 1].push(samples[i]);
+    }
+    for (const seg of segs) {
+      const pts = seg.map(([t, v]) => `${x(t).toFixed(1)},${yV(v).toFixed(1)}`).join(" ");
+      const x0 = x(seg[0][0]).toFixed(1), x1 = x(seg[seg.length - 1][0]).toFixed(1);
+      parts.push(el("polygon", { points: `${x0},${H - bottom} ${pts} ${x1},${H - bottom}`, fill: "rgba(80,250,123,0.18)" }));
+      parts.push(el("polyline", { points: pts, fill: "none", stroke: "#50fa7b", "stroke-width": 1.5, "vector-effect": "non-scaling-stroke" }));
+    }
+  }
+  parts.push(el("text", { x: 4, y: top + 10, fill: "#50fa7b", "font-size": 11 }, `max ${formatBytes(maxV)}/s`));
+  parts.push(el("text", { x: W - 4, y: top + 10, fill: "rgba(139,233,253,0.9)", "font-size": 11, "text-anchor": "end" }, `max ${maxN} Bücher/30 min`));
+  svg.replaceChildren(...parts);
+  const nDone = done.reduce((s, d) => s + d[1], 0);
+  const avg = samples.length ? samples.reduce((s, v) => s + v[1], 0) / samples.length : 0;
+  document.getElementById("speed-graph-info").textContent =
+    `24 h: ${nDone} Bücher fertig · Ø ${formatBytes(avg)}/s` + (samples.length < 60 ? " · Geschwindigkeit wird erst seit dem Update aufgezeichnet" : "");
+}
