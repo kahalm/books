@@ -398,6 +398,9 @@ def download_worker_process(
                         # lokal (28.10.): die Domain-Rotation meldet nur den letzten Fehler (z. B. annas-archive.vg
                         # nicht erreichbar), obwohl eine andere Domain „No downloads left“ sagte → Zähler fragen
                         try:
+                            info = downloader.fetch_account_info(queue_ops.latest_fast_download_md5())
+                            if info:
+                                queue_ops.set_fast_download_account(info)
                             usage = queue_ops.get_fast_download_usage(config.get('fast_download', 'daily_limit', default=50))
                             quota_empty = bool(usage.get('exhausted'))
                         except Exception:
