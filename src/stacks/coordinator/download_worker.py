@@ -406,20 +406,25 @@ def download_worker_process(
                     fd_started = time.time()
                     fd_success, fd_result, fd_host = get_fast_download_url(downloader, md5, worker_id, queue_ops, worker_logger)
                     quota_empty = not fd_success and 'No downloads left' in str(fd_result)
-                    if not fd_success and not quota_empty and md5 not in queue_ops.counted_fast_download_md5s():
-                        # lokal (28.10.): die Domain-Rotation meldet nur den letzten Fehler (z. B. annas-archive.vg
-                        # nicht erreichbar), obwohl eine andere Domain „No downloads left“ sagte → Zähler fragen
+                    aa_reachable = None
+                    if not fd_success and not quota_empty:
+                        # lokal (28./29.10.): die Domain-Rotation meldet nur den letzten Fehler (z. B. die tote
+                        # annas-archive.vg), obwohl eine andere Domain „No downloads left“ oder „Invalid domain_index“
+                        # sagte → Konto abfragen: zeigt, ob Anna's Archive erreichbar ist und ob das Kontingent leer ist
                         try:
                             info = downloader.fetch_account_info(queue_ops.latest_fast_download_md5())
+                            aa_reachable = bool(info)
                             if info:
                                 queue_ops.set_fast_download_account(info)
-                            usage = queue_ops.get_fast_download_usage(config.get('fast_download', 'daily_limit', default=50))
-                            quota_empty = bool(usage.get('exhausted'))
+                            if md5 not in queue_ops.counted_fast_download_md5s():
+                                usage = queue_ops.get_fast_download_usage(config.get('fast_download', 'daily_limit', default=50))
+                                quota_empty = bool(usage.get('exhausted'))
                         except Exception:
-                            pass
-                    # lokal (29.10.): Anna's Archive selbst nicht erreichbar (alle Domains Timeout/Verbindungsfehler)
-                    # → kein Fehlschlag zählen, Buch zurück und länger warten
-                    aa_down = not fd_success and not quota_empty and any(
+                            aa_reachable = False
+                    # lokal (29.10.): Anna's Archive selbst nicht erreichbar (auch die Kontoabfrage scheitert)
+                    # → kein Fehlschlag zählen, Buch zurück und länger warten. Antwortet das Konto, liegt es am Buch
+                    # (kein schneller Download für diese Datei) → normaler Weg (Spiegel, sonst „failed“).
+                    aa_down = not fd_success and not quota_empty and aa_reachable is False and any(
                         t in str(fd_result) for t in ('HTTPSConnectionPool', 'timed out', 'Max retries exceeded'))
                     if aa_down:
                         worker_logger.info(f"Anna's Archive unreachable, requeueing {md5}")
