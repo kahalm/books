@@ -148,16 +148,28 @@ def get_fast_download_url(downloader, md5: str, worker_id: str, queue_ops, worke
             cfg['domain_index'], cfg['path_index'] = i, 0
             ok, res = downloader.try_fast_download(md5)
             if not ok:
-                return False, res, None
+                continue   # Index für diese Datei ungültig → nächsten probieren
             if urlparse(res).netloc == target:
                 idx = i
                 break
         if idx != home:
             worker_logger.info(f"Fast download: fast server {target} via domain_index {idx}")
     last_error = None
+    # 29.10. abends: nicht jede Datei hat alle 21 Indizes — ist der gewählte für dieses Buch ungültig (die Domain-Rotation
+    # meldet dann nur den letzten Fehler, z. B. die tote annas-archive.vg), der Reihe nach Heimat, die anderen und 0 probieren
+    for cand in dict.fromkeys([idx, home] + [x for x in FAST_DOWNLOAD_DOMAIN_INDEXES if x not in (idx, home)] + [0]):
+        cfg['domain_index'], cfg['path_index'] = cand, 0
+        ok, res = downloader.try_fast_download(md5)
+        if ok:
+            if cand != idx:
+                worker_logger.info(f"Fast download: domain_index {idx} not available for {md5}, using {cand}")
+            idx = cand
+            break
+    else:
+        return False, res, None
     for pi in range(FAST_DOWNLOAD_MAX_PATHS):
         cfg['domain_index'], cfg['path_index'] = idx, pi
-        ok, res = downloader.try_fast_download(md5)
+        ok, res = downloader.try_fast_download(md5) if pi else (True, res)
         if not ok:
             return False, last_error or res, None
         host = urlparse(res).netloc
