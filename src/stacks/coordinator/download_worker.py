@@ -405,6 +405,16 @@ def download_worker_process(
                             quota_empty = bool(usage.get('exhausted'))
                         except Exception:
                             pass
+                    # lokal (29.10.): Anna's Archive selbst nicht erreichbar (alle Domains Timeout/Verbindungsfehler)
+                    # → kein Fehlschlag zählen, Buch zurück und länger warten
+                    aa_down = not fd_success and not quota_empty and any(
+                        t in str(fd_result) for t in ('HTTPSConnectionPool', 'timed out', 'Max retries exceeded'))
+                    if aa_down:
+                        worker_logger.info(f"Anna's Archive unreachable, requeueing {md5}")
+                        queue_ops.requeue_download(md5, worker_id)
+                        _current_md5[0] = None
+                        stop_event.wait(timeout=120)
+                        continue
                     if quota_empty:
                         # lokal (28.10.): Kontingent doch noch leer (Stacks' Schätzung des nächsten freien Platzes
                         # war zu früh) → Buch zurück in die Warteschlange statt „failed“ (stacks-retry gibt nach
