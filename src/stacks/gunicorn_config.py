@@ -8,7 +8,11 @@ bind = "0.0.0.0:7788"
 
 # Worker processes
 workers = 1
-worker_class = "sync"
+# lokal (29.10.): 4 Threads — mit „sync“ blockierte eine hängende Anfrage (SQLite-Sperre durch 10 Download-Worker) die
+# ganze Oberfläche 10–20 s (Health-Check rot, stacks-add lief in Zeitüberschreitung). Ein Prozess bleibt (In-Memory-Zustand);
+# die Datenbank-Zugriffe öffnen je Aufruf eine eigene Verbindung.
+worker_class = "gthread"
+threads = 4
 worker_connections = 1000
 timeout = 120
 keepalive = 5
