@@ -281,7 +281,7 @@ def download_worker_process(
                 continue
 
             # Fast download quota exhausted: leave the queue untouched until
-            # the oldest counted download leaves Anna's 18h window
+            # the oldest counted download leaves Anna's window (lokal 29.10.: ~24 h)
             job = None
             if time.monotonic() - last_config_load > 30:
                 config.load()  # settings may have changed in the UI

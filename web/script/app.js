@@ -144,7 +144,7 @@ function updateStatus() {
           fastLimit.fullReset = data.fast_download.full_reset ? new Date(data.fast_download.full_reset) : null;
           const parts = [];
           if (countedOpen != null)
-            parts.push(`${downloadsLeft} frei · ${countedOpen} schon gezählt, noch nicht fertig (kostenlos nachladbar) · ${downloadsPerDay} je 18 h`);
+            parts.push(`${downloadsLeft} frei · ${countedOpen} schon gezählt, noch nicht fertig (kostenlos nachladbar) · ${downloadsPerDay} je 24 h`);
           if (fastLimit.nextSlot) parts.push(`Daily limit reached - next download at ${fastLimit.nextSlot.toLocaleString()}`);
           if (fastLimit.fullReset) parts.push(`All ${downloadsPerDay} available again at ${fastLimit.fullReset.toLocaleString()}`);
           parts.push(data.fast_download.source === "annas_archive" ? "Counter from Anna's Archive" : "Local counter");

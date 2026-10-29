@@ -490,7 +490,10 @@ class QueueOperations:
 
     # Anna's Archive counts a fast download for 18 hours (measured: the
     # entry disappears from recently_downloaded_md5s exactly 18h later)
-    FAST_DOWNLOAD_WINDOW = timedelta(hours=18)
+    # lokal (29.10.): mit der Mitgliedschaft „2050 per day“ sind es ~24 h — der Block von 28.10. 20–22 Uhr
+    # stand am 29.10. 15:30 (19 h später) noch vollständig in recently_downloaded_md5s, der von 28.10. 9 Uhr
+    # wurde erst ab 29.10. 9:10 frei
+    FAST_DOWNLOAD_WINDOW = timedelta(hours=24)
 
     @staticmethod
     def _local_aware(iso: str) -> datetime:
@@ -513,12 +516,15 @@ class QueueOperations:
             conn.close()
 
     def _recent_fast_downloads(self, include_expired: bool = False) -> list:
-        """[(md5, aware first-use time)] inside the window, oldest first, one per md5."""
+        """[(md5, aware last-use time)] inside the window, oldest first, one per md5.
+
+        lokal (29.10.): letzte statt erste Anfrage — ein später erneut angefordertes Buch steht bei Anna's
+        Archive mit der späteren Zeit in der Liste (am 29.10. noch Einträge mit erster Anfrage am 27.10.)."""
         since = datetime.now() - 2 * self.FAST_DOWNLOAD_WINDOW
         conn = get_connection()
         try:
             rows = conn.execute(
-                "SELECT md5, MIN(used_at) AS used_at FROM fast_download_log "
+                "SELECT md5, MAX(used_at) AS used_at FROM fast_download_log "
                 "WHERE used_at >= ? GROUP BY md5 ORDER BY used_at",
                 (since.isoformat(),)
             ).fetchall()
