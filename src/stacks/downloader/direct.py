@@ -65,8 +65,29 @@ def _extract_url_filename(url):
     return candidate
 
 
+# lokal (29.10.): Dateinamen dürfen 255 Bytes haben; kyrillische Titel (2 Bytes je Zeichen) sprengten das
+# („Filename too long“), das Buch scheiterte bei jedem Versuch. Platz lassen für „ (N)“, „.MISMATCH“ und „.part“.
+MAX_FILENAME_BYTES = 200
+
+
+def _shorten_filename(filename, max_bytes=MAX_FILENAME_BYTES):
+    """Zu lange Namen vorne kürzen; Endung und den AA-Schwanz „ -- <md5> -- …“ behalten."""
+    if len(filename.encode('utf-8')) <= max_bytes:
+        return filename
+    m = re.search(r' -- [0-9a-f]{32} -- [^/]*$', filename)
+    if m:
+        head, tail = filename[:m.start()], filename[m.start():]
+    else:
+        suffix = Path(filename).suffix
+        head, tail = filename[:len(filename) - len(suffix)], suffix
+    budget = max_bytes - len(tail.encode('utf-8')) - len(' …'.encode('utf-8'))
+    head = head.encode('utf-8')[:max(budget, 0)].decode('utf-8', 'ignore').rstrip(' .-_')
+    return f"{head} …{tail}"
+
+
 def _build_paths(d, filename, subfolder=None):
     """Build final and temp paths for a resolved filename."""
+    filename = _shorten_filename(filename)
     if subfolder:
         output_dir = d.output_dir / subfolder.lstrip('/')
         output_dir.mkdir(parents=True, exist_ok=True)
