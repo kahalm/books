@@ -1189,7 +1189,14 @@ function renderDownloadsPanel(downloads) {
       return row;
     })
   );
-  panel.style.display = downloads.length ? "block" : "none";
+  // lokal (29.10.): Panel immer zeigen (24-h-Graph auch ohne laufenden Download)
+  if (!downloads.length) {
+    const empty = document.createElement("div");
+    empty.className = "dl-sub";
+    empty.textContent = "Gerade kein Download aktiv";
+    document.getElementById("dl-list").replaceChildren(empty);
+  }
+  panel.style.display = "block";
 }
 
 let speedHistoryAt = 0;
