@@ -10,7 +10,7 @@ import signal
 import time
 from multiprocessing import Event
 
-from stacks.constants import WORKER_TIMEOUT
+from stacks.constants import WORKER_TIMEOUT, AUTO_RETRY_EVERY_MIN, AUTO_RETRY_MIN_AGE_MIN, AUTO_RETRY_MAX
 from stacks.coordinator.queue_ops import QueueOperations
 from stacks.utils.domainupdater import update_wiki_domains
 
@@ -68,6 +68,7 @@ def coordinator_process(stop_event: Event) -> None:
     last_domain_update = 0
     domain_update_interval = 6 * 3600  # 6 hours
     last_speed_sample = 0  # lokal (28.10.): Messpunkt für den Geschwindigkeitsgraphen jede Minute
+    last_auto_retry = 0    # lokal (29.10.): Fehlgeschlagene wieder einreihen (ersetzt den Cronjob stacks-retry)
 
     while not stop_event.is_set():
         try:
@@ -78,6 +79,15 @@ def coordinator_process(stop_event: Event) -> None:
             if time.time() - last_domain_update >= domain_update_interval:
                 update_wiki_domains()
                 last_domain_update = time.time()
+
+            if time.time() - last_auto_retry >= AUTO_RETRY_EVERY_MIN * 60:
+                try:
+                    r = queue_ops.auto_retry_failed(AUTO_RETRY_MAX, AUTO_RETRY_MIN_AGE_MIN)
+                    if r['requeued']:
+                        coord_logger.info(f"Auto-retry: {r['requeued']} of {r['failed']} failed requeued, {r['gave_up']} given up")
+                except Exception as e:
+                    coord_logger.warning(f"Auto-retry failed: {e}")
+                last_auto_retry = time.time()
 
             if time.time() - last_speed_sample >= 60:
                 try:

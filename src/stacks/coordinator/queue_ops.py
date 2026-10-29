@@ -6,6 +6,7 @@ All operations are atomic and handle concurrent access from multiple processes.
 """
 
 import json
+import re
 import os
 import logging
 import sqlite3
@@ -1106,6 +1107,36 @@ class QueueOperations:
             return rows_to_list(cursor.fetchall())
         finally:
             conn.close()
+
+    # lokal (29.10.): vorübergehende Fehler (Spiegel gescheitert, Zeitüberschreitung, Verbindung) — wie bisher stacks-retry
+    AUTO_RETRY_TRANSIENT = re.compile(r'mirror.*failed|timed out|connection|chunked', re.I)
+
+    def auto_retry_failed(self, max_tries: int, min_age_min: int) -> dict:
+        """Fehlgeschlagene Downloads mit vorübergehendem Fehler wieder einreihen, höchstens max_tries je MD5."""
+        cutoff = (datetime.now() - timedelta(minutes=min_age_min)).isoformat()
+        conn = get_connection()
+        try:
+            rows = conn.execute("SELECT md5, error, completed_at FROM downloads WHERE status = 'failed'").fetchall()
+            tries = {r['md5']: r['tries'] for r in conn.execute("SELECT md5, tries FROM auto_retries")}
+        finally:
+            conn.close()
+        todo = [r['md5'] for r in rows if self.AUTO_RETRY_TRANSIENT.search(r['error'] or '')
+                and (r['completed_at'] or '') <= cutoff and tries.get(r['md5'], 0) < max_tries]
+        done = 0
+        for md5 in todo:
+            ok, _ = self.retry_failed(md5)
+            if ok:
+                done += 1
+                conn = get_connection()
+                try:
+                    conn.execute("INSERT INTO auto_retries (md5, tries, last_at) VALUES (?, 1, ?) "
+                                 "ON CONFLICT(md5) DO UPDATE SET tries = tries + 1, last_at = excluded.last_at",
+                                 (md5, datetime.now().isoformat()))
+                    conn.commit()
+                finally:
+                    conn.close()
+        gaveup = sum(1 for r in rows if tries.get(r['md5'], 0) >= max_tries)
+        return {'failed': len(rows), 'requeued': done, 'gave_up': gaveup}
 
     def retry_failed(self, md5: str) -> tuple[bool, str]:
         """

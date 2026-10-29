@@ -78,6 +78,11 @@ FAST_FOCUS_WINDOW_MIN = 20
 FAST_FOCUS_MIN_SAMPLES = 3
 # Bei HTTP 404 auf einem Pfad die nächsten path_index probieren (bis „Invalid“), höchstens so viele
 FAST_DOWNLOAD_MAX_PATHS = 4
+# lokal (29.10.): Fehlgeschlagene mit vorübergehendem Fehler wieder einreihen (ersetzt den Cronjob ~/bin/stacks-retry):
+# alle AUTO_RETRY_EVERY_MIN Minuten, frühestens AUTO_RETRY_MIN_AGE_MIN nach dem Fehlschlag, höchstens AUTO_RETRY_MAX je Buch
+AUTO_RETRY_EVERY_MIN = 15
+AUTO_RETRY_MIN_AGE_MIN = 10
+AUTO_RETRY_MAX = 5
 # lokal 28.10.: Datei-Download (connect, read) in Sekunden; read war 30 → viele „Read timed out“ bei stockenden Servern
 DOWNLOAD_TIMEOUT = (30, 90)
 SCRAPER_WORKERS = 1       # Number of scraper worker processes (keep at 1)

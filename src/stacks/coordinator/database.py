@@ -95,6 +95,13 @@ CREATE TABLE IF NOT EXISTS worker_heartbeats (
     current_download_id INTEGER
 );
 
+-- lokal (29.10.): Zähler für das automatische Wiedereinreihen fehlgeschlagener Downloads
+CREATE TABLE IF NOT EXISTS auto_retries (
+    md5 TEXT PRIMARY KEY,
+    tries INTEGER NOT NULL,
+    last_at TEXT NOT NULL
+);
+
 -- lokal (28.10.): Durchsatz je Download-Server des schnellen Downloads (Auswahl des schnellsten);
 -- je Host, weil Anna's Archive die Zuordnung domain_index → Server zwischendurch neu mischt
 CREATE TABLE IF NOT EXISTS fast_server_stats (
